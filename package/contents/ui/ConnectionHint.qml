@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: GPL-3.0-or-later
 // One line explaining why a page has no data yet.
 //
 // Telling the user "not connected" while the applet is busy connecting (or while

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: GPL-3.0-or-later
 // Vector artwork of the applet, embedded as SVG.
 //
 // The SVGs live in QML string templates instead of separate files because

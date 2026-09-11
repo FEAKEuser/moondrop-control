@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: GPL-3.0-or-later
 // The three output gain steps.
 //
 // MOONDROP firmware counts the steps downwards: device value 0 is the *highest*

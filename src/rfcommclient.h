@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: GPL-3.0-or-later
 // Minimal asynchronous Bluetooth RFCOMM (SPP) client built directly on the
 // Linux AF_BLUETOOTH socket API.  No BlueZ D-Bus profile registration and no
 // libbluetooth dependency are needed - a plain RFCOMM client socket works for

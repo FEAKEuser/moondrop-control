@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: GPL-3.0-or-later
 // Per-model quirks.
 //
 // All current MOONDROP models speak the same GAIA framing over RFCOMM, but they

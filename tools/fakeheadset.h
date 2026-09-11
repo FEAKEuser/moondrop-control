@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: GPL-3.0-or-later
 // A fake MOONDROP headphone for UI development.
 //
 // Implements the Transport interface with canned answers modelled on a real

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: GPL-3.0-or-later
 // Self test for the pure protocol helpers (no Bluetooth involved):
 //
 //   ./build/cli/moondrop-selftest

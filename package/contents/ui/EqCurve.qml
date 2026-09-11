@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: GPL-3.0-or-later
 // Interactive parametric EQ response curve.
 //
 // Draws the combined magnitude response of the bands on a logarithmic frequency

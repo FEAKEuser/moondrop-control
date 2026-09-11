@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: GPL-3.0-or-later
 // Development helper: renders a single QML file (for example one of the applet
 // pages) into a PNG without a Plasma shell, so the UI can be inspected without
 // touching the running desktop session.

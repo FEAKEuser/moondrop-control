@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: GPL-3.0-or-later
 // Lists Bluetooth devices known to BlueZ so the widget can offer a picker.
 #pragma once
 

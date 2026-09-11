@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: GPL-3.0-or-later
 // Command line front end for the MOONDROP backend.  Handy for testing and for
 // scripting: moondrop-cli anc on && moondrop-cli preset 0x3f
 #include "devicediscovery.h"

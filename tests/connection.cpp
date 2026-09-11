@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: GPL-3.0-or-later
 // Connection and queue behaviour, run against the fake headset (no Bluetooth):
 //
 //   ./build/cli/moondrop-conncheck

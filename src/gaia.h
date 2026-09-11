@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: GPL-3.0-or-later
 // GAIA v3/v4 frame codec used by MOONDROP headphones over Bluetooth RFCOMM/SPP.
 //
 // Wire format (both directions):

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: GPL-3.0-or-later
 // The byte channel to the headphone.
 //
 // MoondropDevice only ever talks to this interface, which keeps the protocol and

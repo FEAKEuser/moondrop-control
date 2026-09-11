@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: GPL-3.0-or-later
 // Small upright battery gauge: an SVG shell with a charge fill that rises from
 // the bottom.
 //

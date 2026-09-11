@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: GPL-3.0-or-later
 // Panel indicator.
 //
 // Sizing rules for a Plasma panel applet:

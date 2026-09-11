@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: GPL-3.0-or-later
 // High level MOONDROP headphone controller (GAIA v3/v4 over RFCOMM).
 #pragma once
 

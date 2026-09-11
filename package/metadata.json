@@ -10,7 +10,7 @@
         "Description[zh_CN]": "控制水月雨蓝牙耳机：降噪模式、调音预设、五段参数均衡器、LDAC 与电量",
         "Icon": "audio-headphones",
         "Id": "org.moondrop.control",
-        "License": "MIT",
+        "License": "GPL-3.0-or-later",
         "Name": "Moondrop Control",
         "Name[zh_CN]": "水月雨耳机控制",
         "Version": "0.1.0",

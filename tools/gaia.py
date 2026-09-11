@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-3.0-or-later
 """GAIA v3/v4 over RFCOMM toolkit for MOONDROP headphones (reverse-engineered).
 
 Frame format (both directions):
