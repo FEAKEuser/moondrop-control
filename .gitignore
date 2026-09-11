@@ -1,0 +1,17 @@
+# build output
+build/
+*.user
+
+# reference material: other people's repositories, cloned locally for reading.
+# They must never be committed (they carry their own licences).
+ref-*/
+
+# editor / tooling
+__pycache__/
+*.pyc
+.vscode/
+.idea/
+
+# local test output
+/tmp/
+*.png

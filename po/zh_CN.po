@@ -1,0 +1,456 @@
+# Chinese (Simplified) translation for the Moondrop Control Plasma applet.
+#
+# The catalogue is installed into the applet package:
+#   package/contents/locale/zh_CN/LC_MESSAGES/plasma_applet_org.moondrop.control.mo
+# Regenerate the .mo after editing with scripts/update-translations.sh
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: moondrop-widget 0.1.0\n"
+"Report-Msgid-Bugs-To: \n"
+"Language: zh_CN\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=1; plural=0;\n"
+
+# ---- applet -------------------------------------------------------------
+msgid "Moondrop Control"
+msgstr "水月雨耳机控制"
+
+msgid "MOONDROP headphone"
+msgstr "水月雨耳机"
+
+msgid "Battery: %1 %"
+msgstr "电量：%1 %"
+
+msgid "Connect"
+msgstr "连接"
+
+msgid "Disconnect"
+msgstr "断开连接"
+
+msgid "Battery"
+msgstr "电量"
+
+msgid "Headphone"
+msgstr "耳机"
+
+msgid "Left"
+msgstr "左耳"
+
+msgid "Right"
+msgstr "右耳"
+
+msgid "Case"
+msgstr "充电盒"
+
+msgid "Battery %1"
+msgstr "电池 %1"
+
+msgid "No battery information available."
+msgstr "暂无电量信息。"
+
+msgid "Device"
+msgstr "设备"
+
+msgid "Model"
+msgstr "型号"
+
+msgid "Firmware"
+msgstr "固件版本"
+
+msgid "GAIA version"
+msgstr "GAIA 版本"
+
+msgid "Serial"
+msgstr "序列号"
+
+msgid "Address"
+msgstr "蓝牙地址"
+
+msgid "Linked host"
+msgstr "已连接主机"
+
+msgid "RFCOMM channel"
+msgstr "RFCOMM 通道"
+
+msgid "automatic"
+msgstr "自动"
+
+msgid "Supported features"
+msgstr "支持的功能"
+
+msgid "Refresh"
+msgstr "刷新"
+
+msgid "Info"
+msgstr "信息"
+
+# ---- noise cancelling ---------------------------------------------------
+msgid "Noise cancelling"
+msgstr "降噪"
+
+msgid "Noise cancelling mode"
+msgstr "降噪模式"
+
+msgid "Off"
+msgstr "关闭"
+
+msgid "Transparency"
+msgstr "通透"
+
+msgid "Wind noise reduction"
+msgstr "抗风噪"
+
+msgid "unknown"
+msgstr "未知"
+
+msgid "Current mode: %1. Switching takes a moment on the headphone side."
+msgstr "当前模式：%1。切换需要耳机端处理片刻。"
+
+msgid "Not connected. Use the Connect button above, or pick your headphone in the widget settings."
+msgstr "未连接。请点击上方的「连接」按钮，或在小组件设置中选择你的耳机。"
+
+msgid "This headphone does not report a noise cancelling interface. Press “Refresh” on the info page and try again."
+msgstr "此耳机没有报告降噪接口。请在「信息」页面点击「刷新」后重试。"
+
+# ---- tuning / equalizer -------------------------------------------------
+msgid "Tuning"
+msgstr "调音"
+
+msgid "Frequency"
+msgstr "频率"
+
+msgid "Hz"
+msgstr "Hz"
+
+msgid "Gain"
+msgstr "增益"
+
+msgid "Q factor"
+msgstr "Q 值"
+
+msgid "Apply"
+msgstr "应用"
+
+msgid "Writing the EQ to the headphone…"
+msgstr "正在写入均衡器…"
+
+msgid "Custom PEQ"
+msgstr "自定义 PEQ"
+
+msgid "Preset %1"
+msgstr "预设 %1"
+
+# ---- sound --------------------------------------------------------------
+msgid "Sound"
+msgstr "声音"
+
+msgid "Bluetooth codec"
+msgstr "蓝牙编解码器"
+
+msgid "LDAC (high resolution audio)"
+msgstr "LDAC（高解析音频）"
+
+msgid "LC3"
+msgstr "LC3"
+
+msgid "LHDC"
+msgstr "LHDC"
+
+msgid "This headphone does not expose a codec switch."
+msgstr "此耳机没有提供编解码器开关。"
+
+msgid "Output gain"
+msgstr "输出增益"
+
+msgid "Low"
+msgstr "低"
+
+msgid "Medium"
+msgstr "中"
+
+msgid "High"
+msgstr "高"
+
+msgid "Connections"
+msgstr "连接"
+
+msgid "Multipoint (two devices at once)"
+msgstr "多点连接（同时连接两台设备）"
+
+msgid "The headphone numbers the gain levels in reverse order (0 = highest). If your model does not, turn this around in the widget settings."
+msgstr "耳机固件的增益档位是倒序编号的（0 = 最高）。若你的机型不是这样，可在小组件设置里改回来。"
+
+# ---- settings -----------------------------------------------------------
+msgid "No Bluetooth device found"
+msgstr "未找到蓝牙设备"
+
+msgid "Re-read the device list from BlueZ"
+msgstr "重新从 BlueZ 读取设备列表"
+
+msgid "Only paired devices can be controlled. Pair your headphone in the system Bluetooth settings first."
+msgstr "只能控制已配对的设备。请先在系统蓝牙设置里配对耳机。"
+
+msgid "0 = detect automatically (recommended). MOONDROP EDGE uses channel 1, Space Travel uses 16."
+msgstr "0 = 自动检测（推荐）。水月雨 EDGE 使用通道 1，太空漫游使用 16。"
+
+msgid "Connect automatically (and keep trying until the headphone answers)"
+msgstr "自动连接（并持续重试直到耳机响应）"
+
+msgid ""
+"The widget connects by itself when Plasma starts, and again whenever the "
+"headphone appears. The retry delay grows up to one minute while the headphone "
+"is switched off."
+msgstr ""
+"Plasma 启动后小组件会自动连接；耳机之后出现在系统中时也会自动连接。"
+"耳机未开机时重试间隔会逐渐增加到一分钟。"
+
+msgid "Connecting to the headphone…"
+msgstr "正在连接耳机…"
+
+msgid "The headphone connected, linking the control channel…"
+msgstr "耳机已连接，正在建立控制通道…"
+
+msgid "The headphone disconnected."
+msgstr "耳机已断开。"
+
+msgid "Connection lost, retrying in %1 s"
+msgstr "连接已断开，%1 秒后重试"
+
+msgid "waiting for the headphone…"
+msgstr "等待耳机…"
+
+msgid "Retry now"
+msgstr "立即重试"
+
+msgid "Reconnect automatically after the connection drops"
+msgstr "连接断开后自动重连"
+
+msgid "Show the battery level in the panel"
+msgstr "在面板上显示电量"
+
+msgid "Reverse the output gain levels (0 = highest)"
+msgstr "反转输出增益档位（0 = 最高）"
+
+msgid "MOONDROP firmware counts the three gain steps downwards, so “Low” is device value 2. Turn this off if the labels look swapped on your model."
+msgstr "水月雨固件的三档增益是倒着编号的，所以「低」对应设备值 2。如果你的机型标签显示反了，关掉这个选项。"
+
+# ---- messages from the backend -----------------------------------------
+msgid "Disconnected"
+msgstr "未连接"
+
+msgid "Connecting…"
+msgstr "正在连接…"
+
+msgid "Connected"
+msgstr "已连接"
+
+msgid "Not responding"
+msgstr "无响应"
+
+msgid "No device selected. Pick your headphone in the widget settings."
+msgstr "尚未选择设备。请在小组件设置里选择你的耳机。"
+
+msgid "No device address given."
+msgstr "没有提供设备地址。"
+
+msgid "Invalid Bluetooth address: %1"
+msgstr "蓝牙地址无效：%1"
+
+msgid "Unable to open RFCOMM socket: %1"
+msgstr "无法打开 RFCOMM 套接字：%1"
+
+msgid "Cannot connect to %1 on RFCOMM channel %2: %3"
+msgstr "无法连接到 %1（RFCOMM 通道 %2）：%3"
+
+msgid "Timeout connecting to %1 on RFCOMM channel %2"
+msgstr "连接 %1（RFCOMM 通道 %2）超时"
+
+msgid "Connection check failed: %1"
+msgstr "连接检查失败：%1"
+
+msgid "Read error: %1"
+msgstr "读取错误：%1"
+
+msgid "Write error: %1"
+msgstr "写入错误：%1"
+
+msgid "Bluetooth control channel is in use, retrying…"
+msgstr "蓝牙控制通道已被占用，正在重试…"
+
+msgid "Already connected to %1"
+msgstr "已连接到 %1"
+
+msgid "Not connected, ignoring %1"
+msgstr "未连接，忽略 %1"
+
+msgid ""
+"The control channel of %1 is already in use by another program (for example "
+"another Plasma widget, or the phone app). Disconnect there first - the "
+"headphone accepts only one connection at a time."
+msgstr ""
+"%1 的控制通道已被其它程序占用（例如另一个 Plasma 小组件或手机 App）。"
+"请先在那里断开 —— 耳机同一时刻只接受一个连接。"
+
+msgid "Reconnecting…"
+msgstr "正在重新连接…"
+
+msgid "Connected to %1 on channel %2"
+msgstr "已连接 %1（通道 %2）"
+
+msgid "Could not find a responding GAIA channel on %1. Is the headphone switched on?"
+msgstr "在 %1 上没有找到能响应的 GAIA 通道。耳机是否已开机？"
+
+msgid "BlueZ is not reachable on the system bus."
+msgstr "无法通过系统总线访问 BlueZ。"
+
+msgid "This headphone does not report noise cancelling support."
+msgstr "此耳机没有报告支持降噪。"
+
+msgid "The parametric EQ needs exactly 5 bands."
+msgstr "参数均衡器需要正好 5 段。"
+
+msgid "Could not encode the parametric EQ."
+msgstr "无法编码参数均衡器数据。"
+
+msgid "PEQ write not confirmed, writing again…"
+msgstr "均衡器写入未确认，正在重新写入…"
+
+msgid "The headphone did not accept the parametric EQ."
+msgstr "耳机没有接受这次参数均衡器写入。"
+
+msgid "no answer for %1 (feature %2, command %3)"
+msgstr "%1 没有响应（feature %2，命令 %3）"
+
+msgid "retrying %1"
+msgstr "正在重试 %1"
+
+# ---- parametric EQ editor ------------------------------------------------
+msgid "Preset"
+msgstr "预设"
+
+msgid "This headphone does not report a parametric equalizer."
+msgstr "此耳机没有提供参数均衡器。"
+
+msgid "Band %1: %2 Hz, %3 dB, Q %4"
+msgstr "第 %1 段：%2 Hz，%3 dB，Q %4"
+
+msgid "Drag a point to set frequency and gain, scroll over it to change Q."
+msgstr "拖动圆点调整频率与增益，在圆点上滚轮调整 Q 值。"
+
+msgid "Apply*"
+msgstr "应用*"
+
+msgid "Write the bands to the headphone and switch to the custom preset"
+msgstr "把各段参数写入耳机，并切换到自定义预设"
+
+msgid "Discard the changes and load what the headphone reports"
+msgstr "放弃改动，重新读取耳机当前参数"
+
+msgid "Set every gain to 0 dB"
+msgstr "把所有增益归零"
+
+msgid "Paste a filter list (AutoEq, EqualizerAPO, ...)"
+msgstr "粘贴滤波器列表（AutoEq、EqualizerAPO 等）"
+
+msgid "Filter type and curve calculation"
+msgstr "滤波器类型与曲线计算"
+
+msgid "Paste lines like:\nFilter 1: ON PK Fc 23 Hz Gain -1.5 dB Q 0.40"
+msgstr "粘贴类似这样的行：\nFilter 1: ON PK Fc 23 Hz Gain -1.5 dB Q 0.40"
+
+msgid "Load into the %1 bands"
+msgstr "载入到 %1 个频段"
+
+msgid "Could not read a filter list from that text."
+msgstr "无法从这段文本里解析出滤波器列表。"
+
+msgid "The headphone has %1 bands, the text has %2."
+msgstr "耳机有 %1 个频段，而文本里有 %2 个。"
+
+msgid "Filter type"
+msgstr "滤波器类型"
+
+msgid "Peak"
+msgstr "峰值"
+
+msgid "Low shelf"
+msgstr "低架"
+
+msgid "High shelf"
+msgstr "高架"
+
+msgid ""
+"Shelving filters are part of the protocol, but MOONDROP EDGE always reports "
+"“Peak”; the headphone may ignore this."
+msgstr "协议里包含架式滤波器，但水月雨 EDGE 始终报告「峰值」；耳机可能会忽略该设置。"
+
+msgid "Curve at"
+msgstr "曲线采样率"
+
+msgid "Unknown device"
+msgstr "未知设备"
+
+# ---- device profile picker -----------------------------------------------
+msgid "Detect automatically"
+msgstr "自动检测"
+
+msgid "verified"
+msgstr "已实测"
+
+msgid "Profile"
+msgstr "型号档案"
+
+msgid "Device profile"
+msgstr "型号档案"
+
+msgid ""
+"Detected: %1. Only change this if a feature is missing or labelled wrongly - "
+"some models report their name late, so wait until the connection is up."
+msgstr ""
+"已识别：%1。仅在功能缺失或标注错误时修改 —— 部分机型上报名称较晚，"
+"请等连接建立后再判断。"
+
+msgid "Ignoring data received while not connected"
+msgstr "未连接时收到的数据已忽略"
+
+msgid ""
+"Waiting for the headphone: connect it in the system Bluetooth settings, or "
+"switch it on."
+msgstr "正在等待耳机：请在系统蓝牙设置里连接，或打开耳机电源。"
+
+msgid "Not reachable right now; the applet keeps trying in the background."
+msgstr "暂时无法连接；小组件会在后台持续重试。"
+
+msgid "Not connected."
+msgstr "未连接。"
+
+msgid "Waiting for %1 to connect in Bluetooth…"
+msgstr "正在等待 %1 在蓝牙中连接…"
+
+# ---- equalizer restore ---------------------------------------------------
+msgid "Put back the curve the headphone reported earlier"
+msgstr "恢复耳机先前上报的曲线"
+
+msgid "There is no saved curve to restore."
+msgstr "没有可恢复的已保存曲线。"
+
+# ---- profile source -----------------------------------------------------
+msgid "Profile source"
+msgstr "档案来源"
+
+
+# ---- device profile notes ------------------------------------------------
+msgid "Measured on a real device (firmware 1.4.0)"
+msgstr "在本项目真机上实测（固件 1.4.0）"
+
+msgid "Frames follow the published Pudding captures"
+msgstr "帧格式取自公开的 Pudding 抓包记录"
+
+msgid "Frames follow the published Robin protocol"
+msgstr "帧格式取自公开的 Robin 协议文档"
+
+msgid "Capabilities are detected from the device"
+msgstr "功能按设备上报的能力自动探测"

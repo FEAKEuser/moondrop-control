@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kcfg xmlns="http://www.kde.org/standards/kcfg/1.0"
+      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:schemaLocation="http://www.kde.org/standards/kcfg/1.0 http://www.kde.org/standards/kcfg/1.0/kcfg.xsd">
+    <kcfgfile name=""/>
+    <group name="General">
+        <entry name="showBattery" type="Bool">
+            <label>Show the battery level next to the icon</label>
+            <default>true</default>
+        </entry>
+        <entry name="sampleRate" type="Int">
+            <label>Sample rate used to draw the EQ curve</label>
+            <default>48000</default>
+        </entry>
+        <entry name="gainReversed" type="Bool">
+            <label>Output gain levels are numbered in reverse (0 = highest), as on MOONDROP EDGE</label>
+            <default>true</default>
+        </entry>
+    </group>
+</kcfg>

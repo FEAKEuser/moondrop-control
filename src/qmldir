@@ -1,0 +1,4 @@
+module org.moondrop.backend
+plugin moondropplugin
+classname MoondropPlugin
+typeinfo moondropplugin.qmltypes
