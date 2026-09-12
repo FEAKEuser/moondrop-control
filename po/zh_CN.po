@@ -210,6 +210,30 @@ msgstr ""
 msgid "Connecting to the headphone…"
 msgstr "正在连接耳机…"
 
+msgid "No MOONDROP headphone is paired yet - pair it in the system Bluetooth settings."
+msgstr "还没有配对的水月雨耳机——请先在系统蓝牙设置里完成配对。"
+
+msgid "Using the paired headphone %1"
+msgstr "使用已配对的耳机 %1"
+
+msgid "Several MOONDROP headphones are paired; using %1. Pick another one in the widget settings."
+msgstr "配对了多个水月雨耳机，正在使用 %1。可在小部件设置里换一个。"
+
+msgid "Looking for the control channel…"
+msgstr "正在查找控制通道……"
+
+msgid "Found the control channel on %1 (channel %2)"
+msgstr "已在 %1 上找到控制通道（通道 %2）"
+
+msgid "The control channel is in use, retrying…"
+msgstr "控制通道已被占用，正在重试……"
+
+msgid "Channel %1: %2"
+msgstr "通道 %1：%2"
+
+msgid "Channel %1 does not answer, trying the next one…"
+msgstr "通道 %1 无响应，正在尝试下一个……"
+
 msgid "The headphone connected, linking the control channel…"
 msgstr "耳机已连接，正在建立控制通道…"
 
@@ -276,9 +300,6 @@ msgstr "读取错误：%1"
 
 msgid "Write error: %1"
 msgstr "写入错误：%1"
-
-msgid "Bluetooth control channel is in use, retrying…"
-msgstr "蓝牙控制通道已被占用，正在重试…"
 
 msgid "Already connected to %1"
 msgstr "已连接到 %1"
@@ -429,6 +450,15 @@ msgstr "未连接。"
 
 msgid "Waiting for %1 to connect in Bluetooth…"
 msgstr "正在等待 %1 在蓝牙中连接…"
+
+msgid "%1 is not connected; switching to %2 which is."
+msgstr "%1 未连接，已切换到正在连接的 %2。"
+
+msgid "A different headphone (%1) connected; connecting to it."
+msgstr "另一副耳机（%1）已连接，正在连接它。"
+
+msgid "The headphone is back; connecting again."
+msgstr "耳机已重新出现，正在重新连接。"
 
 # ---- equalizer restore ---------------------------------------------------
 msgid "Put back the curve the headphone reported earlier"

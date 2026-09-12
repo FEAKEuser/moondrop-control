@@ -56,7 +56,27 @@ PlasmaComponents3.ScrollView {
 
         PlasmaComponents3.Label {
             Layout.fillWidth: true
+            // Some models (the Bluetrum based ones, e.g. NEKOCAKE) have no GAIA
+            // battery feature; the level then comes from BlueZ instead, so it is
+            // shown even when the per-battery list is empty.
+            visible: Moondrop.batteries.length === 0 && Moondrop.batteryLevel >= 0
+                      && Moondrop.connected
+            text: i18n("Headphone") + " — " + Moondrop.batteryLevel + " %"
+        }
+
+        PlasmaComponents3.ProgressBar {
+            Layout.fillWidth: true
+            visible: Moondrop.batteries.length === 0 && Moondrop.batteryLevel >= 0
+                      && Moondrop.connected
+            from: 0
+            to: 100
+            value: Moondrop.batteryLevel
+        }
+
+        PlasmaComponents3.Label {
+            Layout.fillWidth: true
             visible: Moondrop.batteries.length === 0
+                      && (Moondrop.batteryLevel < 0 || !Moondrop.connected)
             opacity: 0.7
             text: i18n("No battery information available.")
         }
@@ -138,7 +158,9 @@ PlasmaComponents3.ScrollView {
             PlasmaComponents3.Label { text: i18n("RFCOMM channel"); opacity: 0.7 }
             PlasmaComponents3.Label {
                 Layout.fillWidth: true
-                text: Moondrop.channel > 0 ? Moondrop.channel : i18n("automatic")
+                text: Moondrop.liveChannel > 0
+                      ? Moondrop.liveChannel
+                      : (Moondrop.channel > 0 ? Moondrop.channel : i18n("automatic"))
             }
         }
 

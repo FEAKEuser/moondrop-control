@@ -52,7 +52,15 @@ ColumnLayout {
                 const device = discovery.devices[index]
                 if (device) {
                     Moondrop.setAddress(device.address)
-                    Moondrop.setChannel(0)
+                    // An explicit channel belongs to one headphone.  Keeping it
+                    // while switching devices would leave the scan with a single
+                    // candidate, so a model that listens elsewhere would never be
+                    // found; resetting to auto-detection is the safe default and
+                    // the detected channel is remembered per attempt anyway.
+                    if (Moondrop.channel !== 0) {
+                        Moondrop.setChannel(0)
+                    }
+                    Moondrop.connectDevice()
                 }
             }
             displayText: currentIndex >= 0 && discovery.devices[currentIndex]
