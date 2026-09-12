@@ -69,6 +69,9 @@ namespace Moondrop {
 RfcommClient::RfcommClient(QObject *parent)
     : Transport(parent)
 {
+    // The kernel retries RFCOMM connects for up to ~30 s on its own.  A channel
+    // that does not answer is the normal case while the candidates are scanned,
+    // so keep the deadline short and let the caller pick the next one.
     m_connectTimer = new QTimer(this);
     m_connectTimer->setSingleShot(true);
     connect(m_connectTimer, &QTimer::timeout, this, &RfcommClient::onConnectTimeout);
@@ -82,6 +85,7 @@ RfcommClient::~RfcommClient()
 void RfcommClient::connectToDevice(const QString &address, int channel, int timeoutMs)
 {
     closeSocket();
+    timeoutMs = qBound(700, timeoutMs, 8000);
 
     quint8 bdaddr[6];
     if (!parseAddress(address, bdaddr)) {
@@ -158,6 +162,11 @@ void RfcommClient::closeSocket()
         m_writeNotifier = nullptr;
     }
     if (m_fd >= 0) {
+        // A connect() that is still in progress keeps the pending RFCOMM request
+        // alive in the kernel after close(), which makes the next connect() to
+        // the same device fail with EBUSY until that request finally times out
+        // (measured: ~1 s per abandoned attempt).  Ask the kernel to drop it.
+        ::shutdown(m_fd, SHUT_RDWR);
         ::close(m_fd);
         m_fd = -1;
     }
