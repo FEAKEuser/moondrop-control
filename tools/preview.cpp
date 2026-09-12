@@ -301,6 +301,16 @@ int main(int argc, char **argv)
         device->setProperty("address", QStringLiteral("00:11:22:33:44:55"));
         device->setProperty("channel", 1);
     }
+    // The backend connects on its own shortly after construction (see
+    // MoondropDevice::onStartupAutoConnect).  A preview must never do that: the
+    // headphone serves a single control channel, so rendering a page would take
+    // the live applet's link away - and MOONDROP_PREVIEW_NOCONNECT only controls
+    // the explicit connect below, not that timer.  The explicit connect in
+    // MOONDROP_PREVIEW_CONNECT mode is made right here instead.
+    if (!QMetaObject::invokeMethod(device, "disableStartupAutoConnect")) {
+        std::fprintf(stderr, "warning: could not disable the startup auto-connect; "
+                             "the preview may take the headphone's control channel\n");
+    }
     if (connectDevice || !fake.isEmpty()) {
         QMetaObject::invokeMethod(device, "connectDevice");
     }
