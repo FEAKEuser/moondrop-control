@@ -38,12 +38,31 @@ files rendered through the same tool:
 Note that the offscreen platform plugin used by the harness does not draw the
 checked state of Plasma buttons, so such checks print the result as text too.
 
-Two hardware-free test programs are worth running before every build you install:
+Six hardware-free test programs are worth running before every build you install:
 
 ```bash
-./build/cli/moondrop-selftest    # protocol codec: framing, PEQ payload, profiles
-./build/cli/moondrop-conncheck   # connect / queue / notification behaviour
+./build/cli/moondrop-selftest      # protocol codec: framing, PEQ payload, profiles
+./build/cli/moondrop-profile-check # model matching (incl. the foreign-name trap)
+./build/cli/moondrop-conncheck     # connect / queue / notification behaviour
+./build/cli/moondrop-scan-check    # channel scan, incl. a wrong channel that goes silent
+./build/cli/moondrop-ebusy-check   # EBUSY: give up after the retry budget, with an error
+./build/cli/moondrop-switch-check  # switching headphones: no info from the old one
+./build/cli/moondrop-reconnect-check # recovery without pressing "Retry now"
+./build/cli/moondrop-stress        # churn + settle: no crash, and the scan still connects
 ```
+
+Two of them need real hardware state and skip themselves otherwise:
+`moondrop-failover-check <paired-but-offline-address>` and
+`moondrop-reconnect-check`.  Two diagnostic helpers print what the applet reacts
+to, which is how the switch behaviour was verified on a real device:
+
+```bash
+./build/cli/moondrop-hpwatch <address> <seconds>   # every BlueZ headphone event
+./build/cli/moondrop-watchswitch <seconds>         # connection log while switching pairs
+```
+
+`moondrop-scan-check` also runs against real hardware (`moondrop-scan-check <addr>`,
+and `--fresh` to exercise the no-address-configured path).
 
 `moondrop-conncheck` runs the real `MoondropDevice` against the fake headset and
 covers the failure modes that actually bit us:
@@ -132,8 +151,11 @@ gain order, PEQ support). To add a model:
 1. Append a `DeviceProfile` entry (name patterns are matched against the model name
    reported by `BASIC/GET_VARIANT`).
 2. Only set `verified = true` once the model was actually measured; the UI shows
-   that flag to the user.
-3. Add a case to `tests/protocol.cpp::testProfiles()` and a variant to
+   that flag to the user.  As of today exactly two profiles carry it - `edge`
+   (firmware 1.4.0) and `nekocake` (firmware 1.0.0) - and README.md's "measured
+   scope" table must be updated in the same change when a third one is added.
+3. Add a case to `tests/protocol.cpp::testProfiles()` and to
+   `tests/prof.cpp` (which also covers the foreign-name trap), and a variant to
    `FakeHeadset` if you have captured frames.
 
 ## Translations
@@ -155,9 +177,11 @@ package (`package/contents/locale/...`), which is where Plasma looks them up:
 
 `tests/` also holds the QML checks described above.
 
-Both test programs (and the preview/CLI tools in fake mode) point `MOONDROP_CONFIG`
-at a scratch file via `MOONDROP_CONFIG`, so they never read or write the user's
-configuration.
+All test programs (and the preview/CLI tools **in fake mode**) point
+`MOONDROP_CONFIG` at a scratch file, so they never read or write the user's
+configuration.  The preview tool never connects on its own either: it disables the
+backend's startup auto-connect, so rendering a page cannot take the live applet's
+single control channel away.
 
 ## Safety nets worth knowing about
 
@@ -166,9 +190,52 @@ configuration.
   MOONDROP EDGE and receive headphones-only commands.  Short names belong in
   `exactNames` (whole-name comparison).  `testProfiles()` in
   `tests/protocol.cpp` covers the foreign-name cases.
-* **Offline gate.** `tryNextChannel()` asks `BlueZWatcher` first: if Bluetooth
+* **Offline gate.** `startChannelScan()` asks `BlueZWatcher` first: if Bluetooth
   reports the headphone as disconnected there is no point opening the control
   channel, so it waits for the watcher instead (and the UI says so).
+* **Follow the headphone that is on.** Two mechanisms work together, and both are
+  needed - removing either one brings back "I have to press Retry now":
+  1. `startChannelScan()` checks `connectedMoondropAddress()` when the configured
+     address is known to BlueZ but not connected, and follows another MOONDROP
+     headphone that *is* connected.
+  2. `BlueZWatcher::watchAllHeadsets()` reports *any* MOONDROP headphone that
+     connects (`headphoneAppeared`), so `onHeadphoneAppeared()` can switch
+     immediately.  The reconnect timer alone would be far too slow: the backoff
+     reaches a minute, and `onDeviceVanished()` deliberately resets it to 2 s
+     while nothing is connected.
+  `moondrop-failover-check <offline-address>` covers (1) against real BlueZ state;
+  `moondrop-reconnect-check` covers the retry-without-user-input path.
+* **Qt cannot wildcard a D-Bus object path.** `QDBusConnection::connect()` matches
+  the path exactly, so subscribing to `/` receives *nothing* from
+  `/org/bluez/hci0/dev_XX` even though `dbus-monitor` shows the signal (verified
+  against BlueZ 5.87).  `refreshAllHeadsets()` therefore enumerates device paths
+  and subscribes to each.  Two further traps, both verified by experiment:
+  passing an explicit signature string (`"sa{sv}as"`) makes the connection *fail
+  silently*, and `sender()` is null in a system-bus slot - the emitting path is
+  read from `QDBusContext::message().path()` instead.
+* **Device information is per connection.** Everything read from the headphone
+  (model, firmware, serial, capability list, profile, battery, codecs) is cleared
+  by `clearDeviceInfo()` when the link goes down and when another address is
+  selected.  Without that the widget keeps describing the *previous* headphone
+  after the user switches - and a stale capability list would silently disable
+  features.  `moondrop-switch-check` covers the A -> disconnect -> B sequence.
+* **EBUSY retry budget.** `m_busyRetries` is reset once per scan
+  (`startChannelScan()`), never inside `probeNextChannel()` - resetting it there
+  made the budget unreachable and the scan retried the same channel for ever.
+  `moondrop-ebusy-check` pins this down: after the budget the error must be
+  reported and `busy` must go false.
+* **One control connection.** A MOONDROP headphone accepts a single RFCOMM data
+  connection; every channel (1, 2, 16, ...) shares that one slot.  Consequences
+  that are easy to get wrong: the channel scan must be **sequential** (parallel
+  probes fight over the slot and the real channel can lose the race with EBUSY),
+  and EBUSY means "the headphone is up but somebody holds the slot" - it never
+  identifies the wrong channel.  `moondrop-scan-check` covers the "a wrong channel
+  accepts the connection and then stays silent" case against the fake headset.
+* **Socket per attempt.** Closing a socket whose `connect()` is still pending
+  leaves the kernel's request alive for a moment, so the next `connect()` to the
+  same device fails with EBUSY until it clears (~200 ms to ~1 s).  The scan
+  therefore reuses one socket, shuts it down before closing, and waits before
+  retrying the same channel.
 * **EQ restore point.** Every curve the *headphone* reports is stored
   (`eq/deviceBackup` in the config), so an accidental flatten can be undone from
   the Tuning page.  Writing a curve snapshots the previous one first.

@@ -3,9 +3,21 @@
 控制水月雨（MOONDROP）蓝牙耳机的 KDE Plasma 6 小部件：降噪模式、调音预设、五段参数均衡器（PEQ）、
 编解码器开关、电量等。使用 Qt 6 / QML 开发，直接通过 Linux 蓝牙 RFCOMM（SPP）与耳机通信。
 
-> 已在真机实测：**MOONDROP EDGE（羽翼）**，固件 1.4.0。
-> 协议层（GAIA v3/v4）与水月雨其它机型通用，差异集中在 ANC 指令族、电量布局和增益档位顺序，
-> 这些由「型号档案」描述（见下）。
+## 0. 实测范围（重要）
+
+本项目**只在两台真机上实际测试过**：
+
+| 机型 | 固件 | 主控 | 实测内容 |
+| --- | --- | --- | --- |
+| **MOONDROP EDGE**（羽翼） | 1.4.0 | Qualcomm（GAIA） | 全部功能：降噪、五段 PEQ、LDAC/LC3、DAC 增益、多点、电量 |
+| **Moondrop Nekocake**（猫饼） | 1.0.0 | 中科蓝讯 BT8922E | 连接、能力探测、调音预设、电量（经 BlueZ）；该机型**无** GAIA 降噪/电量通道 |
+
+**其余机型（Pudding / Robin / Space Travel）从未在本项目里接过真机**，它们的档案仅根据
+上游公开资料填写，粒度只到「公开资料记载的帧格式」，**不保证能工作**。
+下面表格的「来源」一列会逐行注明是实测还是资料，界面上也不会把未实测的档案标为已实测；
+协议看起来一致不等于已在真机验证过。
+
+---
 
 ## 1. 设备适配
 
@@ -14,12 +26,16 @@
 | 档案 | 匹配名称 | 电量 | 降噪 | 参数均衡器 | 来源 |
 | --- | --- | --- | --- | --- | --- |
 | EDGE | `MOONDROP EDGE` / 羽翼 | 整机单值 | AudioCuration | ✅ 5 段 | **本项目真机实测**（固件 1.4.0） |
-| Pudding | `MOONDROP Pudding` / 布丁 | 左右耳 + 充电盒 | ANC V2 | — | HyperEars 公开协议（实机验证） |
-| Robin | `Robin's Earphones` / 知更鸟 | 左右耳 | AudioCuration | — | HyperEars 公开协议 |
-| Space Travel | `MOONDROP Space Travel` | 左右耳 | 自动探测 | — | 社区逆向资料 |
+| Pudding | `MOONDROP Pudding` / 布丁 | 左右耳 + 充电盒 | ANC V2 | — | 上游 HyperEars 称其已实机验证；**本项目未实测** |
+| Robin | `Robin's Earphones` / 知更鸟 | 左右耳 | AudioCuration | — | HyperEars 公开协议；**本项目未实测** |
+| Space Travel | `MOONDROP Space Travel` | 左右耳 | 自动探测 | — | 社区逆向资料；**本项目未实测** |
+| NEKOCAKE 猫饼 | `Moondrop Nekocake` | BlueZ（无 GAIA 电量） | **不支持**（长按耳机切换） | — | **本项目真机实测**（固件 1.0.0） |
 | 通用回退 | 任何含 `MOONDROP` / `水月雨` 的名称 | 自动探测 | 自动探测 | 按能力位图 | — |
 
-* 未实测的档案只声明「公开资料记载的帧格式」，界面上不会标记为已实测。
+* **只有 EDGE 与 Nekocake 两行是本项目实测结果**，其余档案都是按公开资料写的，未经真机验证；
+  未实测的档案只声明「公开资料记载的帧格式」，界面上也不会标记为已实测。
+* 猫饼（中科蓝讯 BT8922E）只实现了 GAIA 的 BASIC/EARBUD/VOICE_UI/UPGRADE/调音族：
+  电量读 BlueZ，**降噪只能长按耳机切换**，详见 [`docs/PROTOCOL.md`](docs/PROTOCOL.md) 第 11 节。
 * 型号名上报较晚（先连上、后查询），档案切换是即时的；设置页可手动指定档案以覆盖自动识别。
 * 电量语义按档案区分：TWS 机型的 `00`/`0xFF` 表示「未连接/不可读」并显示为未知，
   充电盒的 `0%` 则是真实状态；整机单值机型 `0%` 合法。
@@ -102,10 +118,12 @@ kquitapp6 plasmashell && kstart plasmashell
 ### 卸载
 
 ```bash
-moondrop-widget-uninstall
-sudo rm -rf $(qtpaths6 --query QT_INSTALL_QML)/org/moondrop
-sudo rm -f /usr/bin/moondrop-cli /usr/bin/moondrop-widget-install-applet
+moondrop-widget-uninstall      # 移除小程序，并打印剩余文件的删除命令
 ```
+
+`moondrop-widget-uninstall` 会按**实际安装位置**（自动推导前缀，并用 `qtpaths6` 查询 QML 目录）
+打印出还需要手动删除的文件，直接复制执行即可——不要照抄某个固定的 `/usr/bin` 路径，
+本机默认前缀是 `/usr/local`。
 
 ## 5. 使用
 
@@ -168,7 +186,12 @@ docs/PROTOCOL.md             协议逆向笔记（含全部实测命令与字节
 * **能力探测**：先发 `BASIC/GET_SUPPORTED_FEATURES`，再按返回的能力位图决定后续查询哪些功能（不支持的命令不会白等超时）。
 * **ANC 指令族自适应**：支持 AudioCuration(F8) / ANC V2(F32) / ANC V1(F2) 三套编码，按能力自动选择并映射到统一的 UI 模式。
 * **降噪切换后固件忙 ~2 秒**：该窗口内所有命令被忽略，队列为此留出静默期。
-* **RFCOMM 通道自动探测**：默认按 «上次成功 → 1 → 16 → 其余» 顺序尝试，首帧响应即确认为正确通道并记住。
+* **RFCOMM 通道自动探测**：默认按 «上次成功 → 1 → 16 → 其余» 顺序逐个尝试（**串行**，不是并发：
+  耳机只提供**一个**控制连接，多个候选同时连会互相抢这一个通道，反而让正确通道拿到 EBUSY 而失败）。
+  不存在的通道内核 ~35 ms 就拒绝，存在的通道立刻应答，因此整个扫描通常不到 1 秒；
+  对「连接成功但一直不回答」的通道另加 ~0.9 s 上限，确认后记住通道。
+* **免配置**：没有选过耳机时，启动会自动挑 BlueZ 里已配对的 MOONDROP 设备（多于一个时优先
+  已连接的那个），所以配对后**不用进设置页**，也不会出现「选了设备却把通道重置成自动」的情况。
 * **自动连接与退避**：连接由后端负责（不依赖 QML），并监听 BlueZ 的 `PropertiesChanged` 事件，
   耳机出现在系统里时自动接管；重试间隔 2 s → 60 s 递增。
 * **通知去抖**：读取某个功能会触发设备推送通知，收通知又去读取会形成死循环
@@ -176,6 +199,8 @@ docs/PROTOCOL.md             协议逆向笔记（含全部实测命令与字节
 
 ## 7. 已知限制
 
+* **只在 EDGE（固件 1.4.0）和 Nekocake（固件 1.0.0）上实测过。**
+  下列条目大多是基于 EDGE 的行为写的，其它机型可能不同；未实测的档案请当作「待验证」。
 * ANC 的 `SET` 命令固件不回 ACK，界面采用乐观更新 + 400 ms 后回读校验。
 * `DAC 增益`用 0/1/2 三个原始值表示，**固件是倒序编号**（0 = 最高）。界面按此映射，
   若你的机型相反，可在设置里关掉「反转输出增益档位」。
@@ -188,6 +213,8 @@ docs/PROTOCOL.md             协议逆向笔记（含全部实测命令与字节
   ```
 * PEQ 频段滤波器类型字节（每条 6 字节处）EDGE 固件恒为 0，界面暂不暴露类型选择。
 * 只实现了只读的“设备信息 / 电量 / 能力”，未实现固件升级（OTA）与触控手势配置。
+* 猫饼的降噪**无法由软件控制**（固件没有对应的 GAIA 命令，只能长按耳机切换），
+  且电量必须经 BlueZ 读取；这是设备限制，不是缺陷。
 
 ## 8. 开发
 
@@ -203,8 +230,14 @@ MOONDROP_PREVIEW_CONNECT=1 QT_QPA_PLATFORM=offscreen \
 # 无需耳机的界面检查（例如增益档位标签映射）
 ./build/cli/preview tests/output-gain.qml /tmp/gain.png 460 560
 
-# 协议编解码自检（不需要蓝牙硬件）
-./build/cli/moondrop-selftest
+# 无需耳机的自检（都不需要蓝牙硬件，且不会碰你的真实配置）
+./build/cli/moondrop-selftest       # 协议编解码
+./build/cli/moondrop-profile-check  # 型号档案匹配
+./build/cli/moondrop-conncheck      # 连接 / 队列 / 通知行为
+./build/cli/moondrop-scan-check     # 通道扫描（含「连上但不回包」的干扰通道）
+./build/cli/moondrop-ebusy-check    # 控制通道被占用时的重试预算与报错
+./build/cli/moondrop-switch-check   # 换耳机时不会残留旧机型信息
+./build/cli/moondrop-stress         # 快速连断 + 稳定重连
 ```
 
 修改翻译：
