@@ -4,6 +4,7 @@
 #include "i18n.h"
 
 #include <QDBusArgument>
+#include <QTimer>
 #include <QDBusConnection>
 #include <QDBusInterface>
 #include <QDBusMessage>
@@ -160,6 +161,101 @@ BlueZWatcher::BlueZWatcher(QObject *parent)
 {
 }
 
+void BlueZWatcher::watchAllHeadsets(bool enabled)
+{
+    if (m_watchAll == enabled) {
+        return;
+    }
+    m_watchAll = enabled;
+    refreshAllHeadsets();
+}
+
+void BlueZWatcher::refreshAllHeadsets()
+{
+    QDBusConnection bus = QDBusConnection::systemBus();
+    for (const QString &path : std::as_const(m_allPaths)) {
+        bus.disconnect(QStringLiteral("org.bluez"), path,
+                       QStringLiteral("org.freedesktop.DBus.Properties"),
+                       QStringLiteral("PropertiesChanged"), this,
+                       SLOT(onAnyPropertiesChanged(QString, QVariantMap, QStringList)));
+    }
+    m_allPaths.clear();
+    if (!m_watchAll) {
+        return;
+    }
+
+    // Qt's QDBusConnection::connect() matches the object path exactly - a "/"
+    // subscription does NOT receive signals from deeper paths (verified against
+    // BlueZ 5.87: the signal arrives on dbus-monitor but never reaches the slot).
+    // BlueZ also has no stable "all devices" object, so the paths are enumerated
+    // and each is subscribed individually.  Devices are few, and a new one is
+    // picked up by refreshAllHeadsets() when the list changes.
+    QDBusMessage request =
+        QDBusMessage::createMethodCall(QStringLiteral("org.bluez"), QStringLiteral("/"),
+                                       QStringLiteral("org.freedesktop.DBus.ObjectManager"),
+                                       QStringLiteral("GetManagedObjects"));
+    const QDBusMessage reply = bus.call(request, QDBus::Block, 3000);
+    if (reply.type() != QDBusMessage::ReplyMessage || reply.arguments().isEmpty()) {
+        return;
+    }
+    const QDBusArgument objects = reply.arguments().at(0).value<QDBusArgument>();
+    objects.beginMap();
+    while (!objects.atEnd()) {
+        objects.beginMapEntry();
+        QString objectPath;
+        QVariant ignored;
+        objects >> objectPath >> ignored;
+        objects.endMapEntry();
+        if (!objectPath.contains(QLatin1String("/dev_")) || objectPath.count(QLatin1Char('/')) != 4) {
+            continue;
+        }
+        m_allPaths.append(objectPath);
+        // the 4-argument slot form (no explicit signature, no path argument); this
+        // is the form Qt matches successfully - a signature string breaks it
+        bus.connect(QStringLiteral("org.bluez"), objectPath,
+                    QStringLiteral("org.freedesktop.DBus.Properties"),
+                    QStringLiteral("PropertiesChanged"), this,
+                    SLOT(onAnyPropertiesChanged(QString, QVariantMap, QStringList)));
+    }
+    objects.endMap();
+}
+
+QString BlueZWatcher::pathToAddress(const QString &path)
+{
+    // /org/bluez/hci0/dev_AA_BB_CC_DD_EE_FF -> AA:BB:CC:DD:EE:FF
+    const int marker = path.indexOf(QLatin1String("/dev_"));
+    if (marker < 0) {
+        return QString();
+    }
+    QString address = path.mid(marker + 5);
+    address.replace(QLatin1Char('_'), QLatin1Char(':'));
+    return address;
+}
+
+void BlueZWatcher::onAnyPropertiesChanged(const QString &interface, const QVariantMap &changed,
+                                          const QStringList &invalidated)
+{
+    Q_UNUSED(invalidated)
+    if (interface != QLatin1String("org.bluez.Device1")) {
+        return;
+    }
+    // The emitting object path is only available through the D-Bus message:
+    // sender() is null for system-bus signals delivered to a QDBusContext slot
+    // (verified against BlueZ 5.87), so message().path() is the reliable source.
+    if (!calledFromDBus()) {
+        return;
+    }
+    const QString address = pathToAddress(message().path());
+    if (address.isEmpty()) {
+        return;
+    }
+    if (changed.contains(QStringLiteral("Connected"))
+        && !qdbus_cast<QVariant>(changed.value(QStringLiteral("Connected"))).toBool()) {
+        return; // only appearing transitions matter here
+    }
+    Q_EMIT headphoneAppeared(address);
+}
+
 void BlueZWatcher::watch(const QString &address)
 {
     if (m_address == address) {
@@ -194,7 +290,6 @@ void BlueZWatcher::resolvePath()
 
     const QString wanted = addressToPathComponent(m_address);
     QString path;
-    bool connected = false;
     const QDBusArgument objects = reply.arguments().at(0).value<QDBusArgument>();
     objects.beginMap();
     while (!objects.atEnd()) {
@@ -253,6 +348,14 @@ void BlueZWatcher::onPropertiesChanged(const QString &interface, const QVariantM
         Q_EMIT deviceConnected(m_address);
     } else {
         Q_EMIT deviceDisconnected(m_address);
+        // The device object may be removed while it is switched off (BlueZ drops
+        // it for some adapters); re-resolving on the way back keeps the
+        // subscription valid so the "it is back" event is actually delivered.
+        QTimer::singleShot(2500, this, [this] {
+            if (!m_address.isEmpty() && !m_connected) {
+                resolvePath();
+            }
+        });
     }
 }
 

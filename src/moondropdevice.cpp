@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "moondropdevice.h"
 
+#include <QDBusArgument>
+#include <QDBusConnection>
+#include <QDBusMessage>
+#include <QDBusVariant>
+
 #include "devicediscovery.h"
 #include "i18n.h"
 #include "rfcommclient.h"
@@ -139,6 +144,7 @@ MoondropDevice::MoondropDevice(QObject *parent, Transport *transport)
     : QObject(parent)
 {
     m_transport = transport ? transport : new RfcommClient(nullptr);
+    m_injectedTransport = transport != nullptr;
     m_transport->setParent(this);
     // MOONDROP_CONFIG points the settings at a specific file, which the tests and
     // the development tools use so they never touch the user's configuration.
@@ -164,15 +170,12 @@ MoondropDevice::MoondropDevice(QObject *parent, Transport *transport)
     m_reconnectTimer->setSingleShot(true);
     connect(m_reconnectTimer, &QTimer::timeout, this, &MoondropDevice::onReconnectTimer);
 
-    m_probeTimer = new QTimer(this);
-    m_probeTimer->setSingleShot(true);
-    m_probeTimer->setInterval(1600);
-    connect(m_probeTimer, &QTimer::timeout, this, [this] {
-        if (m_state == Connecting) {
-            // the channel did not answer at all: try the next candidate
-            advanceChannel();
-        }
-    });
+    // Deadline for one channel candidate: a channel that accepts the connection
+    // but never answers is dropped here instead of after the kernel's own
+    // (much longer) timeout.
+    m_scanTimer = new QTimer(this);
+    m_scanTimer->setSingleShot(true);
+    connect(m_scanTimer, &QTimer::timeout, this, &MoondropDevice::onScanTimeout);
 
     loadSettings();
 
@@ -202,7 +205,16 @@ MoondropDevice::MoondropDevice(QObject *parent, Transport *transport)
             this, &MoondropDevice::onDeviceAppeared);
     connect(m_bluetoothWatcher, &BlueZWatcher::deviceDisconnected,
             this, &MoondropDevice::onDeviceVanished);
+    // React to *any* MOONDROP headphone appearing, not only the configured one:
+    // that is what makes switching pairs connect immediately.
+    connect(m_bluetoothWatcher, &BlueZWatcher::headphoneAppeared,
+            this, &MoondropDevice::onHeadphoneAppeared);
+    m_bluetoothWatcher->watchAllHeadsets(true);
     m_bluetoothWatcher->watch(m_settingsAddress);
+
+    // Everything is wired up and the initial state is read: from here on, a
+    // Bluetooth event may start a connection.
+    m_constructed = true;
 
     // Connect without the user having to press anything.  Delayed a little so the
     // applet is fully built and the system bus has settled.
@@ -216,20 +228,161 @@ void MoondropDevice::disableStartupAutoConnect()
 
 void MoondropDevice::onStartupAutoConnect()
 {
-    if (!m_startupAutoConnect || !m_autoConnect || m_settingsAddress.isEmpty()) {
+    if (!m_startupAutoConnect || !m_autoConnect) {
         return;
     }
     if (m_state != Disconnected) {
         return; // somebody (a tool, or the user) was faster
     }
+    if (m_settingsAddress.isEmpty()) {
+        // Nothing selected yet.  Rather than making the user open the settings
+        // page first, pick the headphone BlueZ already knows about: exactly one
+        // MOONDROP device is the common case, and the settings page can still
+        // override it.
+        const QString candidate = autodetectAddress();
+        if (candidate.isEmpty()) {
+            Q_EMIT logMessage(moondropTr("No MOONDROP headphone is paired yet - pair it in the "
+                                         "system Bluetooth settings."));
+            return;
+        }
+        Q_EMIT logMessage(moondropTr("Using the paired headphone %1").arg(candidate));
+        setAddress(candidate);
+    }
     Q_EMIT logMessage(moondropTr("Connecting to the headphone…"));
     connectDevice();
+}
+
+QString MoondropDevice::connectedMoondropAddress() const
+{
+    // Address of a MOONDROP headphone that BlueZ currently reports as connected,
+    // ignoring the one we were asked about.  Lets the widget follow the headphone
+    // the user actually switched on.
+    const QDBusMessage reply = QDBusConnection::systemBus().call(
+        QDBusMessage::createMethodCall(QStringLiteral("org.bluez"), QStringLiteral("/"),
+                                       QStringLiteral("org.freedesktop.DBus.ObjectManager"),
+                                       QStringLiteral("GetManagedObjects")),
+        QDBus::Block, 3000);
+    if (reply.type() != QDBusMessage::ReplyMessage || reply.arguments().isEmpty()) {
+        return QString();
+    }
+
+    QString found;
+    const QDBusArgument objects = reply.arguments().at(0).value<QDBusArgument>();
+    objects.beginMap();
+    while (!objects.atEnd()) {
+        objects.beginMapEntry();
+        QString path;
+        QVariant ignored;
+        objects >> path >> ignored;
+        objects.endMapEntry();
+        if (!path.contains(QLatin1String("/dev_")) || path.count(QLatin1Char('/')) != 4) {
+            continue;
+        }
+        QDBusMessage request =
+            QDBusMessage::createMethodCall(QStringLiteral("org.bluez"), path,
+                                           QStringLiteral("org.freedesktop.DBus.Properties"),
+                                           QStringLiteral("GetAll"));
+        request << QStringLiteral("org.bluez.Device1");
+        const QDBusMessage deviceReply = QDBusConnection::systemBus().call(request, QDBus::Block, 2000);
+        if (deviceReply.type() != QDBusMessage::ReplyMessage || deviceReply.arguments().isEmpty()) {
+            continue;
+        }
+        const QVariantMap props = qdbus_cast<QVariantMap>(deviceReply.arguments().at(0));
+        if (!props.value(QStringLiteral("Connected")).toBool()) {
+            continue;
+        }
+        QString name = props.value(QStringLiteral("Alias")).toString();
+        if (name.isEmpty()) {
+            name = props.value(QStringLiteral("Name")).toString();
+        }
+        if (!name.contains(QLatin1String("MOONDROP"), Qt::CaseInsensitive)
+            && !name.contains(QStringLiteral("水月雨"))) {
+            continue;
+        }
+        found = props.value(QStringLiteral("Address")).toString();
+        break;
+    }
+    objects.endMap();
+    return found;
+}
+
+QString MoondropDevice::autodetectAddress() const
+{
+    // Ask BlueZ for its devices.  A single MOONDROP entry is used as is; with
+    // several, the connected or, failing that, the trusted one wins, so a user
+    // with more than one pair gets a sensible default instead of nothing.
+    const QDBusMessage reply = QDBusConnection::systemBus().call(
+        QDBusMessage::createMethodCall(QStringLiteral("org.bluez"), QStringLiteral("/"),
+                                       QStringLiteral("org.freedesktop.DBus.ObjectManager"),
+                                       QStringLiteral("GetManagedObjects")),
+        QDBus::Block, 3000);
+    if (reply.type() != QDBusMessage::ReplyMessage || reply.arguments().isEmpty()) {
+        return QString();
+    }
+
+    QStringList moondrop;
+    QString best;
+    QString bestName;
+    const QDBusArgument objects = reply.arguments().at(0).value<QDBusArgument>();
+    objects.beginMap();
+    while (!objects.atEnd()) {
+        objects.beginMapEntry();
+        QString path;
+        QVariant ignored;
+        objects >> path >> ignored;
+        objects.endMapEntry();
+        if (!path.contains(QLatin1String("/dev_")) || path.count(QLatin1Char('/')) != 4) {
+            continue;
+        }
+        QDBusMessage request =
+            QDBusMessage::createMethodCall(QStringLiteral("org.bluez"), path,
+                                           QStringLiteral("org.freedesktop.DBus.Properties"),
+                                           QStringLiteral("GetAll"));
+        request << QStringLiteral("org.bluez.Device1");
+        const QDBusMessage deviceReply = QDBusConnection::systemBus().call(request, QDBus::Block, 2000);
+        if (deviceReply.type() != QDBusMessage::ReplyMessage || deviceReply.arguments().isEmpty()) {
+            continue;
+        }
+        const QVariantMap props = qdbus_cast<QVariantMap>(deviceReply.arguments().at(0));
+        QString name = props.value(QStringLiteral("Alias")).toString();
+        if (name.isEmpty()) {
+            name = props.value(QStringLiteral("Name")).toString();
+        }
+        if (!name.contains(QLatin1String("MOONDROP"), Qt::CaseInsensitive)
+            && !name.contains(QStringLiteral("水月雨"))) {
+            continue;
+        }
+        const QString address = props.value(QStringLiteral("Address")).toString();
+        moondrop << address;
+        // a device that is actually connected wins, otherwise the first one found
+        const bool connected = props.value(QStringLiteral("Connected")).toBool();
+        if (connected || best.isEmpty()) {
+            best = address;
+            bestName = name;
+        }
+    }
+    objects.endMap();
+    if (moondrop.size() > 1) {
+        Q_EMIT const_cast<MoondropDevice *>(this)->logMessage(
+            moondropTr("Several MOONDROP headphones are paired; using %1. Pick another one in the "
+                       "widget settings.")
+                .arg(bestName));
+    }
+    return best;
 }
 
 void MoondropDevice::onDeviceAppeared(const QString &address)
 {
     Q_UNUSED(address)
     setWaitingForHeadphone(false);
+    // The watcher reports the device as connected *synchronously* from
+    // watch()/resolvePath(), which runs inside the constructor.  Reacting to that
+    // first report would connect during construction, before the applet has had a
+    // chance to call disableStartupAutoConnect() - tools and the UI checks rely
+    // on that to stay away from the headphone's single control channel.
+    if (!m_constructed) {
+        return;
+    }
     if (!m_autoConnect || m_state != Disconnected) {
         return;
     }
@@ -240,18 +393,59 @@ void MoondropDevice::onDeviceAppeared(const QString &address)
     connectDevice();
 }
 
+void MoondropDevice::onHeadphoneAppeared(const QString &address)
+{
+    // Another (or the configured) headphone just connected at the Bluetooth level.
+    // Retry right away instead of waiting for the next reconnect tick, so a user
+    // switching pairs does not have to press anything.
+    if (!m_autoConnect || m_state != Disconnected) {
+        return;
+    }
+    if (!m_autoReconnect) {
+        return;
+    }
+    // Retry even when it is the configured headphone coming back: while it was
+    // away the backend parked in "waiting for the headphone", and deviceConnected
+    // only fires for a state change the watcher observes - not when the user turns
+    // the same pair on again after a retry already gave up.  Retrying here (and
+    // not only for a *different* device) is what removes the need to press
+    // "Retry now".
+    if (address != m_settingsAddress) {
+        Q_EMIT logMessage(moondropTr("A different headphone (%1) connected; connecting to it.").arg(address));
+        setAddress(address);
+    } else {
+        Q_EMIT logMessage(moondropTr("The headphone is back; connecting again."));
+    }
+    m_reconnectDelayMs = 2000;
+    m_reconnectAttempts = 0;
+    m_reconnectTimer->stop();
+    connectDevice();
+}
+
 void MoondropDevice::onDeviceVanished(const QString &address)
 {
     Q_UNUSED(address)
     if (m_autoConnect) {
         setWaitingForHeadphone(true);
     }
+    // While no headphone is connected there is nothing to protect, so probe at a
+    // short, fixed interval instead of growing towards a minute.  Switching from
+    // one pair to another should not feel like "the widget gave up".
+    if (m_autoConnect && m_autoReconnect) {
+        m_reconnectDelayMs = 2000;
+        m_reconnectAttempts = 0;
+    }
     if (m_state == Disconnected) {
+        // Already down (or never up).  The reconnect timer is what brings us back
+        // when *another* headphone is switched on, so make sure it is running:
+        // otherwise the user has to press "Retry now" by hand.
+        if (m_autoConnect && m_autoReconnect && !m_reconnectTimer->isActive()) {
+            m_reconnectTimer->start(m_reconnectDelayMs);
+        }
         return;
     }
     Q_EMIT logMessage(moondropTr("The headphone disconnected."));
-    m_reconnectTimer->stop();
-    m_probeTimer->stop();
+    m_scanGaveUp = true;
     const bool wasBusy = busy();
     m_queue.clear();
     m_hasInFlight = false;
@@ -260,11 +454,26 @@ void MoondropDevice::onDeviceVanished(const QString &address)
     }
     m_transport->disconnectFromDevice();
     setState(Disconnected);
+
+    // Keep looking instead of stopping here.  The retry path re-runs the channel
+    // scan, and that scan follows whichever MOONDROP headphone is connected now
+    // (see startChannelScan()), so switching from one pair to another needs no
+    // user interaction at all.
+    if (m_autoConnect && m_autoReconnect && !m_reconnectTimer->isActive()) {
+        m_reconnectTimer->start(m_reconnectDelayMs);
+        Q_EMIT logMessage(moondropTr("Connection lost, retrying in %1 s")
+                              .arg(m_reconnectTimer->interval() / 1000));
+    }
 }
 
 MoondropDevice::~MoondropDevice()
 {
     saveSettings();
+    m_scanGaveUp = true; // no late probe callback may touch the transports
+    m_transport->disconnectFromDevice();
+    if (m_scanTransport) {
+        m_scanTransport->disconnectFromDevice();
+    }
 }
 
 QString MoondropDevice::statusText() const
@@ -305,6 +514,10 @@ void MoondropDevice::setAddress(const QString &address)
     if (m_settingsAddress == address) {
         return;
     }
+    // Selecting another headphone invalidates everything read from the previous
+    // one - without this the UI would describe the old model until the new
+    // connection completes its first refresh.
+    clearDeviceInfo();
     m_settingsAddress = address;
     if (m_bluetoothWatcher) {
         m_bluetoothWatcher->watch(address);
@@ -341,6 +554,68 @@ void MoondropDevice::setAutoReconnect(bool enabled)
     m_autoReconnect = enabled;
     saveSettings();
     Q_EMIT settingsChanged();
+}
+
+void MoondropDevice::clearDeviceInfo()
+{
+    // Everything below is read *from the headphone* and is therefore only valid
+    // while that headphone is the one we are talking to.  Without this the widget
+    // keeps showing the previous model after the user switches headphones.
+    m_model.clear();
+    m_firmware.clear();
+    m_serial.clear();
+    m_gaiaVersion.clear();
+    m_hostAddress.clear();
+    m_features.clear();
+    m_featuresKnown = false;
+    m_peqBandCount = 0;
+
+    // fall back to the pre-detection profile for the configured address (or the
+    // unknown one when nothing is selected)
+    m_profile = DeviceProfile();
+    m_profile.id = QStringLiteral("unknown");
+    m_profile.name = QStringLiteral("Unknown device");
+    m_profile.ancPath = -1;
+
+    m_batteryLevel = -1;
+    m_batteries.clear();
+    m_bluetoothBattery = -1;
+
+    m_ancPath = AncPathUnknown;
+    m_ancMode = -1;
+
+    m_eqSupported = false;
+    m_presetIds.clear();
+    m_currentPreset = -1;
+    m_bands.clear();
+    m_eqWriteTarget.clear();
+    m_eqWriteAttempts = 0;
+
+    m_ldacSupported = false;
+    m_ldacEnabled = false;
+    m_lc3Supported = false;
+    m_lc3Enabled = false;
+    m_lhdcSupported = false;
+    m_lhdcEnabled = false;
+    m_dacGainSupported = false;
+    m_dacGain = -1;
+    m_multipointSupported = false;
+    m_multipointEnabled = false;
+
+    // the parser may hold half a frame from the old link
+    m_stream.clear();
+
+    if (m_ready) {
+        m_ready = false;
+        Q_EMIT readyChanged();
+    }
+    Q_EMIT infoChanged();
+    Q_EMIT profileChanged();
+    Q_EMIT capabilitiesChanged();
+    Q_EMIT batteryChanged();
+    Q_EMIT ancModeChanged();
+    Q_EMIT eqChanged();
+    Q_EMIT codecChanged();
 }
 
 void MoondropDevice::setState(State state)
@@ -397,7 +672,6 @@ void MoondropDevice::connectTo(const QString &address, int channel)
     const bool wasBusy = busy();
     m_queue.clear();
     m_hasInFlight = false;
-    m_probeTimer->stop();
     m_reconnectTimer->stop();
     if (wasBusy) {
         Q_EMIT busyChanged();
@@ -441,41 +715,290 @@ void MoondropDevice::connectTo(const QString &address, int channel)
             }
         }
     }
-    m_channelIndex = 0;
-    tryNextChannel();
+    startChannelScan();
 }
 
-void MoondropDevice::tryNextChannel()
+void MoondropDevice::startChannelScan()
 {
     // If BlueZ says the headphone is not connected, there is nothing to talk to:
     // opening the control channel would fail anyway.  Wait for the watcher to
     // report it instead of tying up the adapter with doomed attempts.
     if (m_bluetoothWatcher && m_bluetoothWatcher->address() == m_settingsAddress
         && !m_bluetoothWatcher->path().isEmpty() && !m_bluetoothWatcher->isDeviceConnected()) {
+        // The configured headphone is offline, but the user may simply have
+        // switched to another one: if a *different* MOONDROP headphone is
+        // connected right now, follow that instead of waiting for ever for a
+        // device that is switched off.  This is what makes "connect my other
+        // pair" work without opening the settings page.
+        const QString live = connectedMoondropAddress();
+        if (!live.isEmpty() && live != m_settingsAddress) {
+            Q_EMIT logMessage(moondropTr("%1 is not connected; switching to %2 which is.")
+                                  .arg(m_settingsAddress, live));
+            setAddress(live);
+            startChannelScan();
+            return;
+        }
         Q_EMIT logMessage(moondropTr("Waiting for %1 to connect in Bluetooth…").arg(m_settingsAddress));
         setWaitingForHeadphone(true);
         setState(Disconnected);
+        // Keep a retry running even though nothing is connected: a headphone that
+        // was already on when the applet started produces no BlueZ event, so
+        // without this the wait would last until the user pressed "Retry now".
+        if (m_autoConnect && m_autoReconnect && !m_reconnectTimer->isActive()) {
+            m_reconnectTimer->start(qBound(2000, m_reconnectDelayMs, 30000));
+        }
         return;
     }
     setWaitingForHeadphone(false);
+    m_channelValidated = false;
+    m_sawBusy = false;
+    m_scanGaveUp = false;
+    m_busyRetries = 0;
+    m_channelIndex = 0;
+    m_scanStream.clear();
+    clearError();
 
-    if (m_channelIndex >= m_channelCandidates.size()) {
-        setState(Disconnected);
-        setError(moondropTr("Could not find a responding GAIA channel on %1. Is the headphone switched on?")
-                     .arg(m_settingsAddress));
+    if (m_injectedTransport) {
+        // The injected transport (development tools, tests) is the only socket
+        // there is, but the scan still runs on it - that is what keeps the
+        // "a wrong channel accepts and then stays silent" handling under test
+        // without hardware.
+        if (!m_scanTransport) {
+            m_scanTransport = m_transport;
+            // the device must not see the scan traffic; the handlers move back in
+            // onScanData() once the channel is settled
+            m_scanTransport->disconnect(this);
+        }
+    }
+
+    setState(Connecting);
+    Q_EMIT logMessage(moondropTr("Looking for the control channel…"));
+    probeNextChannel();
+}
+
+void MoondropDevice::probeNextChannel()
+{
+    // Candidates are tried one at a time.  A MOONDROP headphone serves exactly
+    // one control connection, so probing several channels at once does not make
+    // the scan faster - the sockets simply take the single slot away from each
+    // other (the "wrong" ones get EBUSY and the real one may lose the race).
+    // What makes this fast instead is the deadline below: a channel that does not
+    // exist is refused in ~35 ms, and one that exists answers immediately.
+    if (m_channelValidated || m_scanGaveUp) {
         return;
     }
+    if (m_channelIndex >= m_channelCandidates.size()) {
+        // Every candidate was tried.  If the device was busy at some point,
+        // report that instead of "not found": it means the headphone is there
+        // but another program holds its control connection.
+        if (m_sawBusy) {
+            finishScanBusy();
+        } else {
+            finishScanNotFound();
+        }
+        return;
+    }
+
     const int channel = m_channelCandidates.at(m_channelIndex);
+    ++m_channelIndex;
+
+    // One socket for the whole scan.  Closing the previous one first matters:
+    // an abandoned connect() keeps the kernel's pending RFCOMM request alive,
+    // and a new connect() to the same device would be refused with EBUSY until
+    // that request is gone.
+    Transport *socket = scanTransport();
+    if (!m_scanHandlersAttached) {
+        m_scanHandlersAttached = true;
+        connect(socket, &Transport::connected, this, &MoondropDevice::onScanConnected);
+        connect(socket, &Transport::dataReceived, this, &MoondropDevice::onScanData);
+        connect(socket, &Transport::errorOccurred, this, &MoondropDevice::onScanError);
+    }
+    socket->disconnectFromDevice();
+    const int timeout = qBound(500, m_probeTimeoutMs, 4000);
+    m_scanTimer->start(timeout);
+    socket->connectToDevice(m_settingsAddress, channel, timeout);
+}
+
+void MoondropDevice::onScanConnected()
+{
+    if (m_channelValidated || m_scanGaveUp) {
+        return;
+    }
+    // The channel accepted the connection.  That alone proves nothing (a wrong
+    // channel can accept and then stay silent), so ask the one question every
+    // MOONDROP firmware answers immediately.
+    scanTransport()->write(encodeFrame(FeatureBasic, CBasicGetApplicationVersion,
+                                       QByteArray(), TypeCommand, VendorMoondrop));
+}
+
+void MoondropDevice::onScanData(const QByteArray &data)
+{
+    if (m_channelValidated || m_scanGaveUp) {
+        return;
+    }
+    // Any well formed GAIA frame may arrive first: some firmwares announce a
+    // state change the moment the channel opens.  TCP-like streaming means a
+    // frame can be split across reads, so the partial data is kept in the scan's
+    // own stream (a fresh one per read would drop the frame and never validate
+    // the channel).
+    const QList<Frame> frames = m_scanStream.feed(data);
+    if (frames.isEmpty()) {
+        return;
+    }
+
+    m_scanTimer->stop();
+    m_channelValidated = true;
+    m_scanGaveUp = true;
+    Transport *socket = scanTransport();
+    const int channel = socket->channel();
+    Q_EMIT logMessage(moondropTr("Found the control channel on %1 (channel %2)")
+                          .arg(m_settingsAddress)
+                          .arg(channel));
+
+    // The scan handlers are dropped before the device ones are attached: the
+    // frame that validated the channel is fed to the device below, and keeping
+    // both sets of handlers would deliver it twice.
+    socket->disconnect(this);
+    if (socket != m_transport) {
+        // The socket that carried the answer becomes the device transport, so the
+        // validated connection is not thrown away and reopened.
+        m_transport->disconnect(this);
+        m_transport->disconnectFromDevice();
+        m_transport->setParent(nullptr);
+        m_transport->deleteLater();
+        m_transport = socket;
+        m_transport->setParent(this);
+    }
+    connect(m_transport, &Transport::connected, this, &MoondropDevice::onTransportConnected);
+    connect(m_transport, &Transport::disconnected, this, &MoondropDevice::onTransportDisconnected);
+    connect(m_transport, &Transport::dataReceived, this, &MoondropDevice::onDataReceived);
+    connect(m_transport, &Transport::errorOccurred, this, &MoondropDevice::onError);
+    m_scanTransport = nullptr;
+    m_scanHandlersAttached = false;
+
+    m_settings->setValue(QStringLiteral("device/lastChannel"), channel);
+    m_settings->sync();
+    m_reconnectDelayMs = 2000;
+    m_reconnectAttempts = 0;
+
+    // The channel has proved itself by answering, so this *is* the connected
+    // state.  onTransportConnected() is deliberately not used here: it exists for
+    // the path where a transport is connected without a scan (injected fake,
+    // command line) and has to verify the channel with a queued probe request -
+    // doing that here as well would ask the firmware version a second time.
     clearError();
-    setState(Connecting);
-    m_transport->connectToDevice(m_settingsAddress, channel);
-    m_probeTimer->start();
+    setState(Connected);
+    // The frame that validated the channel is already parsed data (it is the
+    // answer to the scan's probe), so feed it before the regular refresh.
+    for (const Frame &frame : frames) {
+        handleFrame(frame);
+    }
+    handshake();
+}
+
+void MoondropDevice::onScanError(const QString &message)
+{
+    if (m_channelValidated || m_scanGaveUp) {
+        return;
+    }
+    const int err = scanTransport()->lastErrno();
+    const int channel = scanTransport()->channel();
+    m_scanTimer->stop();
+
+    if (err == EBUSY) {
+        // The headphone serves one control connection at a time, and every
+        // channel shares that single slot: EBUSY therefore says "the headphone is
+        // up, but the slot is taken", never "this channel is wrong".  Another
+        // program may hold it (another widget, the phone app), or it may be our
+        // own previous socket whose teardown has not finished - so wait a moment
+        // and retry the same channel rather than walking through the list.
+        m_sawBusy = true;
+        scanTransport()->disconnectFromDevice();
+        if (m_busyRetries < 4) {
+            ++m_busyRetries;
+            Q_EMIT logMessage(moondropTr("The control channel is in use, retrying…"));
+            QTimer::singleShot(700, this, [this] {
+                if (m_channelValidated || m_scanGaveUp) {
+                    return;
+                }
+                --m_channelIndex; // try the same candidate again
+                probeNextChannel();
+            });
+            return;
+        }
+        Q_EMIT logMessage(moondropTr("Channel %1: %2").arg(channel).arg(message));
+        scanTransport()->disconnectFromDevice();
+        QTimer::singleShot(300, this, &MoondropDevice::probeNextChannel);
+        return;
+    }
+
+    // Not there (ECONNREFUSED/EHOSTDOWN/...): the expected case while scanning.
+    if (qEnvironmentVariableIsSet("MOONDROP_DEBUG")) {
+        std::fprintf(stderr, "[scan] channel %d: %s\n", channel, qPrintable(message));
+    }
+    scanTransport()->disconnectFromDevice();
+    probeNextChannel();
+}
+
+void MoondropDevice::onScanTimeout()
+{
+    if (m_channelValidated || m_scanGaveUp) {
+        return;
+    }
+    // The channel accepted the connection but never answered: not the GAIA
+    // channel.  Move on instead of waiting for the kernel's own timeout.
+    const int channel = scanTransport()->channel();
+    Q_EMIT logMessage(moondropTr("Channel %1 does not answer, trying the next one…").arg(channel));
+    scanTransport()->disconnectFromDevice();
+    probeNextChannel();
+}
+
+Transport *MoondropDevice::scanTransport()
+{
+    if (!m_scanTransport) {
+        // It has the lifetime of the device: a cancelled connect() needs the
+        // socket to stay alive until the kernel has dropped the request.
+        m_scanTransport = new RfcommClient(this);
+    }
+    return m_scanTransport;
+}
+
+void MoondropDevice::finishScanBusy()
+{
+    m_scanGaveUp = true;
+    m_scanTimer->stop();
+    setState(Disconnected);
+    // one literal so the string extractor sees the whole message
+    setError(moondropTr("The control channel of %1 is already in use by another program "
+                        "(for example another Plasma widget, or the phone app). Disconnect there first - "
+                        "the headphone accepts only one connection at a time.")
+                 .arg(m_settingsAddress));
+    if (m_autoReconnect && m_autoConnect) {
+        // try again later; whoever holds the link may let go of it
+        m_reconnectAttempts++;
+        m_reconnectTimer->start(m_reconnectDelayMs);
+        m_reconnectDelayMs = qMin(m_reconnectDelayMs * 2, 60000);
+    }
+}
+
+void MoondropDevice::finishScanNotFound()
+{
+    m_scanGaveUp = true;
+    m_scanTimer->stop();
+    setState(Disconnected);
+    setError(moondropTr("Could not find a responding GAIA channel on %1. Is the headphone switched on?")
+                 .arg(m_settingsAddress));
+    if (m_autoReconnect && m_autoConnect) {
+        m_reconnectAttempts++;
+        m_reconnectTimer->start(m_reconnectDelayMs);
+        m_reconnectDelayMs = qMin(m_reconnectDelayMs * 2, 60000);
+    }
 }
 
 void MoondropDevice::disconnectDevice()
 {
     m_reconnectTimer->stop();
-    m_probeTimer->stop();
+    m_scanGaveUp = true;
     const bool wasBusy = busy();
     m_queue.clear();
     m_hasInFlight = false;
@@ -488,41 +1011,24 @@ void MoondropDevice::disconnectDevice()
 
 void MoondropDevice::onTransportConnected()
 {
-    // Ask for the firmware version through the normal queue: a GAIA device
-    // answers immediately, so this doubles as channel validation for the
-    // automatic channel scan, and it keeps `busy` truthful from the start.
-    m_channelValidated = false;
+    // The scan validates the channel before adopting it; connecting a transport
+    // directly (command line, tests) still has to prove that it answered.  The
+    // probe request below doubles as that proof either way.
     Request probe;
     probe.feature = FeatureBasic;
     probe.command = CBasicGetApplicationVersion;
     probe.what = QStringLiteral("channel-probe");
     probe.timeoutMs = 700;
     probe.maxAttempts = 2;
-    probe.onTimeout = [this] {
-        if (!m_channelValidated) {
-            advanceChannel();
-        }
-    };
     enqueue(probe);
 }
 
-void MoondropDevice::advanceChannel()
-{
-    if (m_channelValidated) {
-        return;
-    }
-    // trying a different channel, so start its "busy" allowance from scratch
-    m_busyRetries = 0;
-    m_probeTimer->stop();
-    m_transport->disconnectFromDevice();
-    ++m_channelIndex;
-    QTimer::singleShot(0, this, &MoondropDevice::tryNextChannel);
-}
 
 void MoondropDevice::onTransportDisconnected()
 {
-    m_probeTimer->stop();
     const bool wasConnected = (m_state == Connected);
+    // the information belongs to the headphone that just went away
+    clearDeviceInfo();
     setState(Disconnected);
     if (!wasConnected || !m_autoReconnect || !m_autoConnect) {
         return;
@@ -538,39 +1044,9 @@ void MoondropDevice::onTransportDisconnected()
 
 void MoondropDevice::onError(const QString &message)
 {
-    // While probing for a working channel, connection errors are expected (wrong
-    // channel, nothing listening, ...) and are handled here instead of being
-    // reported to the user.
-    if (m_state == Connecting && !m_channelValidated) {
-        // EBUSY: the RFCOMM link is held by somebody else.  Two cases:
-        //   * another instance just disconnected and the teardown is still running
-        //     (happens right after a plasmashell restart) - a short wait fixes it
-        //   * a headphone serves only one RFCOMM connection at a time, so a
-        //     running widget or phone app blocks us until it lets go
-        if (m_transport->lastErrno() == EBUSY) {
-            if (m_busyRetries < 6) {
-                ++m_busyRetries;
-                Q_EMIT logMessage(moondropTr("Bluetooth control channel is in use, retrying…"));
-                QTimer::singleShot(1000, this, &MoondropDevice::tryNextChannel);
-                return;
-            }
-            // one literal so the string extractor sees the whole message
-            setError(moondropTr("The control channel of %1 is already in use by another program "
-                                "(for example another Plasma widget, or the phone app). Disconnect there first - the headphone accepts only one connection at a time.")
-                         .arg(m_settingsAddress));
-            setState(Disconnected);
-            if (m_autoReconnect && m_autoConnect) {
-                // try again later; whoever holds the link may let go of it
-                m_reconnectAttempts++;
-                m_reconnectTimer->start(m_reconnectDelayMs);
-                m_reconnectDelayMs = qMin(m_reconnectDelayMs * 2, 60000);
-            }
-            return;
-        }
-        Q_EMIT logMessage(message);
-        advanceChannel();
-        return;
-    }
+    // Errors from a socket that is still being probed are handled by the probe
+    // callbacks (they carry the channel number); this path only covers the
+    // adopted channel.
     setError(message);
 }
 
@@ -603,10 +1079,10 @@ void MoondropDevice::handleFrame(const Frame &frame)
     }
 
     if (m_state == Connecting && !m_channelValidated) {
-        // first answer means the channel is a GAIA channel
+        // only reached via the request queue (the scan validates the channel
+        // before adopting it), but keep it consistent: this is the first answer
         clearError();
         m_channelValidated = true;
-        m_probeTimer->stop();
         m_reconnectDelayMs = 2000;
         m_reconnectAttempts = 0;
         m_settings->setValue(QStringLiteral("device/lastChannel"), m_transport->channel());
@@ -1147,6 +1623,9 @@ void MoondropDevice::parseBattery(const QByteArray &payload)
         // everything unreadable: keep the last known values instead of showing 0 %
         m_batteries = list;
         Q_EMIT batteryChanged();
+        // the device may not have a usable GAIA battery feature at all (the
+        // NEKOCAKE answers nothing here) - BlueZ may still know its level
+        readBluetoothBattery();
         return;
     }
 
@@ -1335,6 +1814,46 @@ void MoondropDevice::parseMultipoint(const QByteArray &payload)
     Q_EMIT codecChanged();
 }
 
+void MoondropDevice::readBluetoothBattery()
+{
+    // Some models (the Bluetrum based NEKOCAKE among them) do not implement the
+    // GAIA battery feature at all, but BlueZ reads their level from the standard
+    // Battery Service.  Fall back to it so the applet is not left without a
+    // percentage.
+    if (m_settingsAddress.isEmpty()) {
+        return;
+    }
+    QDBusMessage request =
+        QDBusMessage::createMethodCall(QStringLiteral("org.bluez"), bluezDevicePath(),
+                                       QStringLiteral("org.freedesktop.DBus.Properties"),
+                                       QStringLiteral("Get"));
+    request << QStringLiteral("org.bluez.Battery1") << QStringLiteral("Percentage");
+    const QDBusMessage reply = QDBusConnection::systemBus().call(request, QDBus::Block, 2000);
+    if (reply.type() != QDBusMessage::ReplyMessage || reply.arguments().isEmpty()) {
+        return;
+    }
+    const int level = reply.arguments().at(0).value<QDBusVariant>().variant().toInt();
+    if (level < 0 || level > 100) {
+        return;
+    }
+    if (m_bluetoothBattery == level) {
+        return;
+    }
+    m_bluetoothBattery = level;
+    // Only used while the device itself reports nothing: on models that do have
+    // the GAIA battery feature the value read there is the authoritative one.
+    if (m_batteryLevel < 0 && m_batteries.isEmpty()) {
+        m_batteryLevel = level;
+        Q_EMIT batteryChanged();
+    }
+}
+
+QString MoondropDevice::bluezDevicePath() const
+{
+    return QStringLiteral("/org/bluez/hci0/dev_")
+           + QString(m_settingsAddress).replace(QLatin1Char(':'), QLatin1Char('_'));
+}
+
 void MoondropDevice::setWaitingForHeadphone(bool waiting)
 {
     if (m_waitingForHeadphone == waiting) {
@@ -1458,6 +1977,10 @@ void MoondropDevice::parseSupportedFeatures(const QByteArray &payload)
     m_featuresKnown = true;
     Q_EMIT infoChanged();
     Q_EMIT capabilitiesChanged();
+    if (!hasFeature(FeatureBattery)) {
+        // no GAIA battery on this model: BlueZ's Battery1 is the only source
+        readBluetoothBattery();
+    }
     refreshDetails();
 }
 

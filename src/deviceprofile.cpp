@@ -87,6 +87,29 @@ QList<DeviceProfile> buildProfiles()
         travel.verified = false;
         travel.notes = QStringLiteral("Capabilities are detected from the device");
         profiles.append(travel);
+
+        // NEKOCAKE (Bluetrum BT8922E) - measured on firmware 1.0.0.  It is a TWS
+        // model but exposes no GAIA battery and no ANC feature at all: the level
+        // comes from BlueZ's Battery1 and ANC is switched by holding the earbud.
+        // Its own profile keeps that documented (instead of silently reusing the
+        // generic fallback, which claims nothing).
+        DeviceProfile nekocake;
+        nekocake.id = QStringLiteral("nekocake");
+        nekocake.name = QStringLiteral("MOONDROP NEKOCAKE");
+        nekocake.namePatterns = {QStringLiteral("NEKOCAKE"), QStringLiteral("猫饼")};
+        nekocake.exactNames = {};
+        nekocake.isBuds = true;
+        // measured: no BATTERY feature in the capability bitmap
+        nekocake.battery = BatteryKind::Unknown;
+        nekocake.batteryIds = {};
+        // measured: F2 / F8 / F32 all stay silent on the GET and SET commands
+        nekocake.ancPath = -1;
+        nekocake.parametricEq = false;
+        nekocake.gainOrder = GainOrder::Unknown;
+        nekocake.verified = true;
+        nekocake.notes = QStringLiteral("Measured on firmware 1.0.0: no GAIA battery (BlueZ is used) "
+                                       "and no GAIA ANC (hold the earbud to switch)");
+        profiles.append(nekocake);
     }
 
     // ---- generic ----------------------------------------------------------
