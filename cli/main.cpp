@@ -309,7 +309,13 @@ int main(int argc, char **argv)
             }
         } else if (command == QLatin1String("battery")) {
             if (device.batteries().isEmpty()) {
-                out << "no battery information\n";
+                // models without a GAIA battery feature (NEKOCAKE) still report a
+                // level through BlueZ, which the backend falls back to
+                if (device.batteryLevel() >= 0) {
+                    out << QStringLiteral("battery: %1 %\n").arg(device.batteryLevel());
+                } else {
+                    out << "no battery information\n";
+                }
             }
             for (const QVariant &item : device.batteries()) {
                 const QVariantMap entry = item.toMap();
