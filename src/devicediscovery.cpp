@@ -154,6 +154,23 @@ QString addressToPathComponent(const QString &address)
     return QStringLiteral("dev_") + QString(address).replace(QLatin1Char(':'), QLatin1Char('_'));
 }
 
+// Boolean out of a PropertiesChanged dictionary.
+//
+// Qt demarshals `a{sv}` with the inner variant already unwrapped, so the value is
+// usually a plain bool.  Wrapping that in qdbus_cast<QVariant>() again yields an
+// *invalid* QVariant whose toBool() is false - which silently turned every
+// "Connected = true" signal into a disconnect, leaving the applet convinced the
+// headphone was gone until it was restarted.  Returning the raw bool keeps both
+// shapes working, and a nested QDBusVariant (what a QDBusArgument delivers) is
+// unwrapped explicitly.
+bool variantToBool(const QVariant &value)
+{
+    if (value.metaType() == QMetaType::fromType<QDBusVariant>()) {
+        return value.value<QDBusVariant>().variant().toBool();
+    }
+    return value.toBool();
+}
+
 } // namespace
 
 BlueZWatcher::BlueZWatcher(QObject *parent)
@@ -250,7 +267,7 @@ void BlueZWatcher::onAnyPropertiesChanged(const QString &interface, const QVaria
         return;
     }
     if (changed.contains(QStringLiteral("Connected"))
-        && !qdbus_cast<QVariant>(changed.value(QStringLiteral("Connected"))).toBool()) {
+        && !variantToBool(changed.value(QStringLiteral("Connected")))) {
         return; // only appearing transitions matter here
     }
     Q_EMIT headphoneAppeared(address);
@@ -339,7 +356,7 @@ void BlueZWatcher::onPropertiesChanged(const QString &interface, const QVariantM
     if (it == changed.constEnd()) {
         return;
     }
-    const bool connected = qdbus_cast<QVariant>(it.value()).toBool();
+    const bool connected = variantToBool(it.value());
     if (connected == m_connected) {
         return;
     }

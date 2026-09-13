@@ -51,6 +51,12 @@ add_executable(moondrop-switch-check ../tests/switch.cpp ../tools/fakeheadset.h)
 target_include_directories(moondrop-switch-check PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/tools)
 target_link_libraries(moondrop-switch-check PRIVATE moondropcore Qt6::Core)
 
+# BlueZ signal parsing: "Connected" must be believed, or the widget never picks
+# the headphone up again after it was switched off and on
+add_executable(moondrop-watchstate-check ../tests/watchstate.cpp)
+target_include_directories(moondrop-watchstate-check PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(moondrop-watchstate-check PRIVATE moondropcore Qt6::Core Qt6::DBus)
+
 # failover: follow the headphone that is actually connected (needs real BlueZ state)
 add_executable(moondrop-failover-check ../tests/failover.cpp)
 target_include_directories(moondrop-failover-check PRIVATE ${CMAKE_SOURCE_DIR}/src)

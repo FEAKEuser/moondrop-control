@@ -47,6 +47,7 @@ Six hardware-free test programs are worth running before every build you install
 ./build/cli/moondrop-scan-check    # channel scan, incl. a wrong channel that goes silent
 ./build/cli/moondrop-ebusy-check   # EBUSY: give up after the retry budget, with an error
 ./build/cli/moondrop-switch-check  # switching headphones: no info from the old one
+./build/cli/moondrop-watchstate-check # BlueZ "Connected" parsing: not read as a disconnect
 ./build/cli/moondrop-reconnect-check # recovery without pressing "Retry now"
 ./build/cli/moondrop-stress        # churn + settle: no crash, and the scan still connects
 ```
@@ -213,6 +214,25 @@ single control channel away.
   passing an explicit signature string (`"sa{sv}as"`) makes the connection *fail
   silently*, and `sender()` is null in a system-bus slot - the emitting path is
   read from `QDBusContext::message().path()` instead.
+* **Do not wrap a signal argument in `qdbus_cast<QVariant>()` again.** Qt
+  demarshals `a{sv}` with the inner variant **already unwrapped**, so
+  `changed["Connected"]` is a plain bool `QVariant`.  Wrapping it again gives an
+  *invalid* QVariant whose `toBool()` is always `false` - and `isValid()` is
+  false too, so nothing complains.  The effect was that every
+  `Connected = true` signal was read as a *disconnect*: the watcher's
+  `m_connected` stayed stuck at false, the backend was never told the headphone
+  had come back, and the applet sat on "waiting for the headphone" until it was
+  restarted.  This is the "it stopped connecting again" bug; it only shows up
+  after a real disconnect/reconnect, never in a fake-transport test.
+  `variantToBool()` in `devicediscovery.cpp` now unwraps only a `QDBusVariant`
+  (the shape a `QDBusArgument` delivers) and returns every other value as-is;
+  `moondrop-watchstate-check` feeds both shapes to the real slot without hardware.
+* **The watcher parses the signal, not the state.** `onPropertiesChanged()` acts
+  on the transition it is told about, so a missed or misread signal is the same
+  thing as the headphone never coming back.  When touching that slot, remember
+  both `deviceConnected` (the watched address) and `headphoneAppeared` (any
+  MOONDROP device) are fired from it, and the second one is what the backend
+  relies on to follow a pair the user switched to.
 * **Device information is per connection.** Everything read from the headphone
   (model, firmware, serial, capability list, profile, battery, codecs) is cleared
   by `clearDeviceInfo()` when the link goes down and when another address is
