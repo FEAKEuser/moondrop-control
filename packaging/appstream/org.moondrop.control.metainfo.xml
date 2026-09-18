@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  AppStream metadata for the distribution packages.
+
+  The applet is delivered as a Plasma package rather than as an application, so
+  this file exists for the software centres and for `appstreamcli validate`,
+  not because Plasma itself needs it.  The id mirrors the plasmoid id so a
+  software centre can tie the two together.
+
+  Validate with:  appstreamcli validate packaging/appstream/org.moondrop.control.metainfo.xml
+-->
+<component type="addon">
+  <id>org.moondrop.control</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+  <name>Moondrop Control</name>
+  <name xml:lang="zh_CN">水月雨耳机控制</name>
+  <summary>Control MOONDROP Bluetooth headphones from the Plasma panel</summary>
+  <summary xml:lang="zh_CN">在 Plasma 面板上控制水月雨蓝牙耳机</summary>
+  <description>
+    <p>
+      A KDE Plasma 6 widget and command line tool for MOONDROP Bluetooth
+      headphones, talking to them directly over the RFCOMM control channel.
+    </p>
+    <p>Features:</p>
+    <ul>
+      <li>Noise cancelling modes: off, cancelling and transparency</li>
+      <li>A graphical five band parametric EQ with AutoEq / EqualizerAPO import</li>
+      <li>Tuning preset selection</li>
+      <li>LDAC, LC3 and LHDC switches, three step DAC gain, multipoint</li>
+      <li>Per earbud and case battery levels</li>
+      <li>Automatic connection and reconnection as the headphone comes and goes</li>
+    </ul>
+    <p>
+      No root and no bluetoothctl are required: the applet uses an AF_BLUETOOTH
+      socket as the ordinary user.
+    </p>
+    <p>
+      Verified on MOONDROP EDGE (firmware 1.4.0) and Moondrop Nekocake (firmware
+      1.0.0).  Profiles for other models are written from public protocol
+      documentation and are marked as unverified in the user interface.
+    </p>
+  </description>
+  <url type="homepage">https://github.com/FEAKEuser/moondrop-control</url>
+  <url type="bugtracker">https://github.com/FEAKEuser/moondrop-control/issues</url>
+  <developer id="github.com">
+    <name>FEAKEuser</name>
+  </developer>
+  <extends>org.kde.plasma.desktop</extends>
+  <provides>
+    <binary>moondrop-cli</binary>
+  </provides>
+  <categories>
+    <category>Settings</category>
+    <category>HardwareSettings</category>
+  </categories>
+  <content_rating type="oars-1.1"/>
+</component>

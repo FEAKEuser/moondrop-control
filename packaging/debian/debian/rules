@@ -1,0 +1,18 @@
+#!/usr/bin/make -f
+%:
+	dh $@
+
+override_dh_auto_configure:
+	dh_auto_configure -- \
+		-DCMAKE_BUILD_TYPE=Release \
+		-DMOONDROP_QML_DIR=/usr/lib/$(DEB_HOST_MULTIARCH)/qt6/qml
+
+# The upstream install rules already place the QML plugin, the CLI and the
+# applet package.  The applet additionally has to live in Plasma's shared
+# plasmoid directory so every user sees it without running kpackagetool6.
+override_dh_auto_install:
+	dh_auto_install
+	install -d $(CURDIR)/debian/moondrop-control/usr/share/plasma/plasmoids
+	cp -a $(CURDIR)/package $(CURDIR)/debian/moondrop-control/usr/share/plasma/plasmoids/org.moondrop.control
+	install -Dm644 $(CURDIR)/packaging/appstream/org.moondrop.control.metainfo.xml \
+		$(CURDIR)/debian/moondrop-control/usr/share/metainfo/org.moondrop.control.metainfo.xml

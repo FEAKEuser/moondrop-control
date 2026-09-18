@@ -272,11 +272,133 @@ single control channel away.
    cannot delay it.
 5. Expose the value as a `Q_PROPERTY` and use it from QML.
 
+## Packaging
+
+Three channels exist, and they install the backend differently.  The difference is
+not cosmetic; it is forced by how Qt resolves QML modules.
+
+| Channel | Where the plugin lives | How the QML finds it |
+| --- | --- | --- |
+| Distro package (RPM/deb/PKGBUILD) | `/usr/lib*/qt6/qml/org/moondrop/backend` | `import org.moondrop.backend 1.0` (global module) |
+| `.plasmoid` / KDE Store / `install.sh` | *inside* the package, `contents/ui/backend/` | `import "backend"` (directory import) |
+| Source tree / build tree | `build/org/moondrop/backend` | global module via `QML_IMPORT_PATH=$PWD/build` |
+
+`package/contents/ui/*.qml` always imports the **global** module, because that is
+what the distro layout and the build tree provide.  `make-plasmoid.sh` rewrites
+those imports to the directory form in its staging copy - so the store archive is
+the only artifact that differs, and the source tree needs no duplication.
+
+### Two traps when touching packaging
+
+* **A module URI cannot be published from inside a package.**  A QML file that
+  imports `org.moondrop.backend` has that URI resolved against Qt's *global*
+  import path, which a user-installed package cannot write to.  A relative
+  directory import resolves against the importing QML file instead, so it works
+  from wherever the package was unpacked.  Verified against a real plasmashell
+  (the plugin's `registerTypes()` runs from the package's own copy).
+* **The bundled `qmldir` must not reuse the public module name.**  If the user has
+  *both* the distro package and the store package, the globally installed module
+  owns `org.moondrop.backend`, and the bundled copy is then refused with
+  `Cannot install singleton type 'Moondrop' into protected module` - every page of
+  the store package fails to load.  `make-plasmoid.sh` therefore writes the private
+  `org.moondrop.backend.bundled`.  Leaving the `module` line out also works, but
+  Qt logs a "does not contain a module identifier directive" warning on every
+  start.  Both variants were measured against a plasmashell with the global module
+  installed.
+
+### The Qt version gate
+
+`qtbase/src/corelib/plugin/qlibrary.cpp` refuses a plugin whose recorded Qt is
+*newer* than the host:
+
+```
+plugin.minor > host.minor  ||  plugin.major != host.major   ->  "uses incompatible Qt library"
+```
+
+Consequences that are easy to get wrong:
+
+* A store archive built on your newest development Qt **only runs on that Qt or
+  newer**.  Build it on the oldest Qt you intend to support.  Measured on this
+  project: Qt 6.8-built plugin loads on a Qt 6.11 plasmashell; the reverse is
+  rejected with `uses incompatible Qt library. (6.11.0)`.
+* `scripts/build-baseline-plugin.sh` builds the plugin in a container
+  (`fedora:40`, Qt 6.8, the oldest available KF6/Qt6 pairing) and
+  `MOONDROP_BACKEND_SO=... ./scripts/make-plasmoid.sh` picks that plugin up.
+  Note that the project requires Qt 6.5, and Fedora 39 (Qt 6.5) has no KF6
+  packages, so 6.8 is the practical floor for a KF6 build.
+* The distro packages do not have this problem: they are rebuilt against the
+  distribution's own Qt, so their plugin always matches the host.
+
+### Scripts
+
+| Script | Purpose |
+| --- | --- |
+| `scripts/make-plasmoid.sh [outdir]` | build the self-contained `.plasmoid` |
+| `scripts/build-baseline-plugin.sh [image]` | build the plugin against an old Qt in a container |
+| `scripts/install.sh` | the one line installer (distro package, else source) |
+| `packaging/make-tarball.sh [outdir]` | source tarball for the distro packages (refuses a dirty tree) |
+| `packaging/debian/make-deb.sh [outdir]` | build the `.deb` |
+| `packaging/fedora/moondrop-control.spec` | `rpmbuild` / COPR |
+| `packaging/arch/PKGBUILD` | `makepkg` / AUR |
+| `packaging/appstream/*.metainfo.xml` | AppStream metadata (`appstreamcli validate` clean) |
+| `scripts/store-check.sh` | end-to-end test of the store channel (see below) |
+| `tools/ocs-provider.py` | local OCS provider used by that test |
+
+The distro packages install the applet into `/usr/share/plasma/plasmoids/` rather
+than running `kpackagetool6`: that is the shared location Plasma searches for
+every user, so a system package does not have to be installed per account.
+`kpackagetool6` remains the way a *user* installs a `.plasmoid`.
+
+### Testing the store channel without publishing anything
+
+`scripts/store-check.sh` runs the whole channel on the development machine:
+
+1. builds the `.plasmoid` and installs it with `kpackagetool6`;
+2. drives the **real KNewStuff client** (`KNSCore::EngineBase` +
+   `Transaction::installLatest`, i.e. the code behind "Get New Widgets") against a
+   local OCS provider, and asserts the archive came down and was unpacked;
+3. loads the result in a real `plasmashell` (`plasmawindowed`) and asserts no page
+   failed and that the pages resolved the bundled backend.
+
+`tools/ocs-provider.py` is the provider it talks to.  Nothing leaves the machine
+and the real store is never contacted; everything is written under a scratch XDG
+root, so the user's own plasmoids are untouched.
+
+Facts about the OCS protocol that the provider had to get right, each of which
+cost a debugging round:
+
+* **The client speaks XML, not JSON.**  `format=json` is only used when a caller
+  asks for it; Attica's parser reads XML, and a JSON-only provider fails with
+  `parseList():: XML Error: Start tag expected`.
+* **The response shape is flat**: `{"status","statuscode","totalitems","data"}` -
+  *not* the nested `{"ocs":{"meta":…,"data":…}}` form of OCS v2.  The old
+  `/ocs/v1/content/data` endpoint on store.kde.org now answers `410 Gone`; the
+  live service is `api.kde-look.org/ocs/v1/`.
+* **A download link is resolved in two steps.**  The search result carries
+  `downloadway`; link resolution asks
+  `content/download/<contentid>/<linkid>` and expects
+  `<downloadlink>`/`<mimetype>`/`<gpgfingerprint>` back under `details="download"`.
+* **`ResultsStream` is lazy**: it does not talk to the provider until `fetch()`
+  is called.
+* **`knewstuff-dialog6` only accepts a knsrc file by name** from the standard
+  search path (`$XDG_DATA_HOME/knsrcfiles/`), which is why the test needs a
+  scratch XDG root rather than an argument.
+
+The check needs the KNewStuff development files; where they are not installed,
+point `MOONDROP_KNS_INCLUDE` at an unpacked copy.  Skipped steps are reported as
+skips and the script exits non-zero, so a missing dependency cannot be mistaken
+for a passing store test:
+
+```bash
+./scripts/store-check.sh                    # full run (needs kf6-knewstuff-devel)
+```
+
 ## Repository layout note
 
 The `ref-*/` directories are *other people's repositories*, cloned locally for
 reading during development.  They are in `.gitignore` and must never be committed -
-they carry their own licences and histories.  The same goes for `build/`.
+they carry their own licences and histories.  The same goes for `build/` and
+`dist/`.
 
 If you re-clone those sources to study a protocol, keep them outside the working
 tree (or under `ref-`, which is ignored).

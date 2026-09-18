@@ -81,3 +81,16 @@ target_link_libraries(moondrop-watchswitch PRIVATE moondropcore Qt6::Core)
 add_executable(moondrop-startup-wait-check ../tests/startup-wait.cpp)
 target_include_directories(moondrop-startup-wait-check PRIVATE ${CMAKE_SOURCE_DIR}/src)
 target_link_libraries(moondrop-startup-wait-check PRIVATE moondropcore Qt6::Core)
+
+# The KDE Store / "Get New Widgets" install path, driven programmatically so it
+# can run unattended.  It needs the KNewStuff development files, which not every
+# development machine has, so the target is optional rather than required.
+find_package(KF6NewStuffCore QUIET)
+if(KF6NewStuffCore_FOUND)
+    add_executable(moondrop-kns-check ../tests/kns-install.cpp)
+    target_link_libraries(moondrop-kns-check PRIVATE KF6::NewStuffCore Qt6::Core)
+    message(STATUS "KNewStuff found: moondrop-kns-check will be built")
+else()
+    message(STATUS "KNewStuff not found: skipping moondrop-kns-check "
+                   "(install kf6-knewstuff-devel / libkf6newstuff-dev)")
+endif()

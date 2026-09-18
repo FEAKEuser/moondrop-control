@@ -47,5 +47,11 @@ add_subdirectory(cli)
 message(STATUS "QML module install directory: ${MOONDROP_QML_DIR}")
 
 install(DIRECTORY package/ DESTINATION ${CMAKE_INSTALL_DATADIR}/moondrop-widget/package)
+
+# AppStream metadata, so software centres can describe the package.  Plasma does
+# not read it itself; the distribution packages want it.
+install(FILES packaging/appstream/org.moondrop.control.metainfo.xml
+        DESTINATION ${CMAKE_INSTALL_DATADIR}/metainfo)
+
 install(PROGRAMS scripts/install-applet.sh DESTINATION ${CMAKE_INSTALL_BINDIR} RENAME moondrop-widget-install-applet)
 install(PROGRAMS scripts/uninstall.sh DESTINATION ${CMAKE_INSTALL_BINDIR} RENAME moondrop-widget-uninstall)

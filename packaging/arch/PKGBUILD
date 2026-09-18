@@ -1,0 +1,41 @@
+# Maintainer: FEAKEuser <feohz@users.noreply.github.com>
+#
+# Arch / AUR.  Build locally with:   makepkg -si
+# Submit to the AUR as moondrop-control (and moondrop-control-git for the
+# VCS variant below).
+pkgname=moondrop-control
+pkgver=0.1.0
+pkgrel=1
+pkgdesc="KDE Plasma applet to control MOONDROP Bluetooth headphones"
+arch=('x86_64' 'aarch64')
+url="https://github.com/FEAKEuser/moondrop-control"
+license=('GPL-3.0-or-later')
+# Arch package names: the KDE Frameworks 6 packages drop the kf6- prefix that
+# Fedora uses, so this is `ki18n`, not `kf6-ki18n`.
+depends=('qt6-base' 'qt6-declarative' 'ki18n' 'bluez' 'plasma-workspace')
+makedepends=('cmake' 'ninja' 'extra-cmake-modules' 'gettext' 'git')
+source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
+sha256sums=('SKIP')
+
+build() {
+    cd "$pkgname-$pkgver"
+    cmake -B build -G Ninja \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_INSTALL_PREFIX=/usr \
+        -DMOONDROP_QML_DIR=/usr/lib/qt6/qml
+    cmake --build build
+}
+
+package() {
+    cd "$pkgname-$pkgver"
+    DESTDIR="$pkgdir" cmake --install build
+
+    # Plasma searches the shared plasmoid directory for every user, so install
+    # the applet package there instead of running kpackagetool6 per account.
+    install -d "$pkgdir/usr/share/plasma/plasmoids"
+    cp -a package "$pkgdir/usr/share/plasma/plasmoids/org.moondrop.control"
+
+    install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+    install -Dm644 README.md "$pkgdir/usr/share/doc/$pkgname/README.md"
+    install -Dm644 docs/PROTOCOL.md "$pkgdir/usr/share/doc/$pkgname/PROTOCOL.md"
+}

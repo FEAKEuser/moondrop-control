@@ -93,21 +93,141 @@ cmake --build build -j$(nproc)
 
 ## 4. 安装
 
-C++ 的 QML 插件必须装到 Qt 的导入路径（默认为 `/usr/lib64/qt6/qml`，需要 root）：
+按「省事程度」排序，任选一条即可。**所有渠道都不需要 root**（发行版包除外，它由包管理器提权）。
+
+### 4.1 一行安装（推荐先试这个）
 
 ```bash
-sudo cmake --install build          # 安装 QML 插件、命令行工具、桌面小程序包
+curl -fsSL https://raw.githubusercontent.com/FEAKEuser/moondrop-control/master/scripts/install.sh | bash
+```
+
+脚本按以下优先级办事，不用你选：
+
+1. 系统里已有本项目的发行版包 → 交给 `dnf` / `apt` / `yay` / `paru` 装（之后跟着系统一起更新）；
+2. 没有 → 从源码构建，装进 `~/.local`，**不碰系统目录、不需要 root**；
+3. 两种情况都不可行 → 明确告诉你缺哪个包，而不是装到一半失败。
+
+卸载（源码安装的部分）：
+
+```bash
+curl -fsSL .../scripts/install.sh | bash -s -- --uninstall
+```
+
+开发时想从本地检出构建，加 `--source-dir`：
+
+```bash
+./scripts/install.sh --from-source --source-dir "$PWD" --prefix ~/.local
+```
+
+### 4.2 KDE Store /「获取新部件」
+
+包已经按商店要求打包好（`dist/org.moondrop.control-<版本>.plasmoid`），上传到
+[store.kde.org](https://store.kde.org) 后，用户可以直接在
+**右键面板 → 添加部件 → 获取新部件** 里搜索安装。
+
+自己打这个包：
+
+```bash
+./scripts/make-plasmoid.sh          # 产物在 dist/
+```
+
+然后在本机验证：
+
+```bash
+kpackagetool6 --type Plasma/Applet --install dist/org.moondrop.control-0.1.0.plasmoid
+```
+
+> **这个包为什么能直接装**：本项目的后端是 C++ 插件，商店的部件包默认按纯 QML 处理，
+> 因此包内**自带**一份编译好的 `libmoondropplugin.so`，QML 通过**相对目录导入**
+> （`import "backend"`）加载它。实测确认 Plasma 会从包内目录解析该导入，插件随包加载。
+> 包内的 `qmldir` 用私有模块名 `org.moondrop.backend.bundled`，这样即使用户同时装了
+> 发行版包（它提供全局的 `org.moondrop.backend`），两者也不会互相顶掉——
+> 同名会触发 `Cannot install singleton type into protected module`，让商店包的每个页面都加载失败。
+
+> **Qt 版本限制（重要）**：Qt 拒绝「比宿主 Qt 更新」的插件——
+> `plugin.minor > host.minor` 直接报 `uses incompatible Qt library`，major 必须相同。
+> 所以**商店包要在你打算支持的最老 Qt 上构建**，不要在最新开发机上构建。
+> 仓库为此提供容器化基线构建：
+>
+> ```bash
+> ./scripts/build-baseline-plugin.sh              # 默认 fedora:40 (Qt 6.8)
+> MOONDROP_BACKEND_SO=build/baseline/libmoondropplugin.so ./scripts/make-plasmoid.sh
+> ```
+>
+> 实测（Fedora 44 宿主机 Qt 6.11 / Debian 13 Qt 6.8.2）：
+>
+> | 包里插件的 Qt | 在 Debian 13（Qt 6.8.2）加载 |
+> | --- | --- |
+> | 6.11（本机构建） | ❌ `uses incompatible Qt library. (6.11.0)` |
+> | 6.8（基线构建） | ✅ 0 错误，8 个页面全部解析包内后端 |
+>
+> `make-plasmoid.sh` 会打印包里插件的 Qt 版本，便于确认。
+
+整个商店流程可以在本机离线验证，不用发布任何东西：
+
+```bash
+./scripts/store-check.sh
+```
+
+它会依次验证「打包 → 用**真实 KNewStuff 客户端**（即「获取新部件」背后的代码）从本地
+OCS 提供者下载并安装 → 在真实 plasmashell 里加载」。需要 `kf6-knewstuff-devel`；
+缺依赖时它会明确报 SKIP 并以非零退出，不会伪装成通过。
+
+### 4.3 发行版包
+
+| 发行版 | 做法 | 实测 |
+| --- | --- | --- |
+| Fedora / RHEL | `packaging/fedora/moondrop-control.spec`，或 COPR | ✅ `rpmbuild` 成功，产物含 plasmoid/插件/metainfo |
+| Arch / AUR | `packaging/arch/PKGBUILD`（`makepkg -si`，或提交到 AUR） | ✅ 容器内 `makepkg` 成功，产出 `.pkg.tar.zst` |
+| Debian / Ubuntu | `packaging/debian/`（`./packaging/debian/make-deb.sh`） | ✅ `dpkg-buildpackage` 成功，产物依赖正确 |
+
+自己构建：
+
+```bash
+./packaging/make-tarball.sh                      # 打包源码 tarball
+rpmbuild -bb packaging/fedora/moondrop-control.spec --define "_topdir /tmp/rpmbuild"
+# 或
+podman run --rm -v "$PWD:/src:ro" -v "$PWD/dist:/out:z" debian:trixie \
+       bash /src/packaging/debian/make-deb.sh /out
+```
+
+发行版包装的是**全局**安装：QML 插件进 Qt 导入目录、小程序包进
+`/usr/share/plasma/plasmoids/`（这样所有用户都能看到，不必各自跑 `kpackagetool6`），
+并附带 AppStream 元数据（`packaging/appstream/`，`appstreamcli validate` 通过）。
+发行版包没有 Qt 版本闸门问题：它们是针对各发行版自己的 Qt 现场编译的。
+
+推送 `v*` tag 后，`.github/workflows/build.yml` 会跑全套检查（含商店流程），
+并**在最老 Qt 的容器里重新打一次包**再挂到 Release —— 否则 Release 产物在老发行版上
+会因 Qt 版本闸门而装不上。
+
+### 4.4 从源码手动装
+
+C++ 的 QML 插件默认要装到 Qt 的导入路径（本机为 `/usr/lib64/qt6/qml`，需要 root）：
+
+```bash
+sudo cmake --install build          # QML 插件、命令行工具、小程序包
 moondrop-widget-install-applet      # 以当前用户安装 Plasma 小程序（无需 root）
 ```
 
-或者手动指定：
+或者装到自己的 prefix：
 
 ```bash
 cmake -B build -DMOONDROP_QML_DIR="$HOME/.local/lib/qt6/qml"
 cmake --build build -j$(nproc) && cmake --install build
 ```
 
-安装后重启 plasmashell 让已添加的小部件重新加载 QML：
+⚠️ `~/.local/lib/qt6/qml` **不在** Qt 的默认导入路径里（默认只有
+`<prefix>/lib64/qt6/qml`、`/usr/lib64/qt6/qml` 和 `qrc:`），所以这条路必须再告诉
+Qt 一次——这正是 4.1 的安装脚本改用「包内自带插件」布局的原因：
+
+```ini
+# ~/.config/environment.d/moondrop.conf
+QML_IMPORT_PATH=/home/你的用户名/.local/lib/qt6/qml
+```
+
+改完要重新登录（或至少重启 plasmashell）才生效。
+
+安装后重启 plasmashell 让小部件重新加载 QML：
 
 ```bash
 kquitapp6 plasmashell && kstart plasmashell
@@ -115,7 +235,7 @@ kquitapp6 plasmashell && kstart plasmashell
 
 然后右键面板/桌面 →「添加小部件」→ 搜索 **Moondrop**。
 
-### 卸载
+### 4.5 卸载
 
 ```bash
 moondrop-widget-uninstall      # 移除小程序，并打印剩余文件的删除命令
@@ -123,7 +243,7 @@ moondrop-widget-uninstall      # 移除小程序，并打印剩余文件的删�
 
 `moondrop-widget-uninstall` 会按**实际安装位置**（自动推导前缀，并用 `qtpaths6` 查询 QML 目录）
 打印出还需要手动删除的文件，直接复制执行即可——不要照抄某个固定的 `/usr/bin` 路径，
-本机默认前缀是 `/usr/local`。
+本机默认前缀是 `/usr/local`。发行版包用包管理器卸载即可。
 
 ## 5. 使用
 
@@ -178,7 +298,16 @@ src/
 cli/main.cpp                 命令行前端
 tools/                       Python 逆向脚本 + QML 离屏预览工具
 docs/PROTOCOL.md             协议逆向笔记（含全部实测命令与字节格式）
+scripts/                     安装 / 打包 / 翻译 / UI 检查
+packaging/                   Fedora spec、Arch PKGBUILD、Debian、AppStream
 ```
+
+安装渠道（详见 [4. 安装](#4-安装)）：
+
+* **`.plasmoid`（KDE Store）**：包内自带编译好的后端插件，QML 用相对目录导入加载，
+  因此不依赖系统 Qt 导入路径、不需要 root；
+* **发行版包**：插件进系统 Qt 导入目录，小程序包进 `/usr/share/plasma/plasmoids/`；
+* **一行脚本**：优先用发行版包，否则按第一种布局构建到 `~/.local`。
 
 设计要点：
 
@@ -231,14 +360,29 @@ MOONDROP_PREVIEW_CONNECT=1 QT_QPA_PLATFORM=offscreen \
 ./build/cli/preview tests/output-gain.qml /tmp/gain.png 460 560
 
 # 无需耳机的自检（都不需要蓝牙硬件，且不会碰你的真实配置）
-./build/cli/moondrop-selftest       # 协议编解码
-./build/cli/moondrop-profile-check  # 型号档案匹配
-./build/cli/moondrop-conncheck      # 连接 / 队列 / 通知行为
-./build/cli/moondrop-scan-check     # 通道扫描（含「连上但不回包」的干扰通道）
-./build/cli/moondrop-ebusy-check    # 控制通道被占用时的重试预算与报错
-./build/cli/moondrop-switch-check   # 换耳机时不会残留旧机型信息
-./build/cli/moondrop-stress         # 快速连断 + 稳定重连
+./build/cli/moondrop-selftest          # 协议编解码
+./build/cli/moondrop-profile-check     # 型号档案匹配
+./build/cli/moondrop-conncheck         # 连接 / 队列 / 通知行为
+./build/cli/moondrop-scan-check        # 通道扫描（含「连上但不回包」的干扰通道）
+./build/cli/moondrop-ebusy-check       # 控制通道被占用时的重试预算与报错
+./build/cli/moondrop-switch-check      # 换耳机时不会残留旧机型信息
+./build/cli/moondrop-watchstate-check  # BlueZ 的 "Connected" 不会被误读成断开
+./build/cli/moondrop-stress            # 快速连断 + 稳定重连
+
+# 需要真实 BlueZ 状态（没有时自行跳过）
+./build/cli/moondrop-failover-check <已配对但离线的地址>
+./build/cli/moondrop-reconnect-check
+
+# 诊断工具：打印 applet 所响应的 BlueZ 事件
+./build/cli/moondrop-hpwatch <地址> <秒数>   # 逐个打印耳机事件
+./build/cli/moondrop-watchswitch <秒数>      # 换耳机时的连接日志
+
+# 安装渠道的端到端检查（商店包 + 真实 KNewStuff 客户端 + 真实 plasmashell）
+./scripts/store-check.sh
 ```
+
+`store-check.sh` 需要 `kf6-knewstuff-devel`；缺依赖时会明确报 SKIP 并以非零退出，
+不会伪装成通过。它不联网、不发布任何东西，全部写在临时 XDG 目录下。
 
 修改翻译：
 

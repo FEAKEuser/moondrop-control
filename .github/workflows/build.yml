@@ -1,0 +1,123 @@
+name: build
+
+on:
+  push:
+    branches: [master]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: build and check
+    runs-on: ubuntu-latest
+    container: fedora:latest
+    steps:
+      - name: Install build dependencies
+        run: |
+          dnf install -y --setopt=install_weak_deps=False \
+            cmake gcc-c++ ninja-build git zip \
+            qt6-qtbase-devel qt6-qtdeclarative-devel \
+            extra-cmake-modules kf6-ki18n-devel gettext
+
+      - uses: actions/checkout@v4
+
+      - name: Configure
+        run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build
+
+      # The checks need no Bluetooth hardware and no running desktop, so they are
+      # the meaningful gate here: they cover the protocol codec, the model
+      # profiles, the request queue, the connection state machine, the channel
+      # scan, the EBUSY budget and the rapid connect/disconnect cycles.
+      - name: Run the hardware-free checks
+        run: |
+          for t in moondrop-selftest moondrop-profile-check moondrop-conncheck \
+                   moondrop-scan-check moondrop-ebusy-check moondrop-switch-check \
+                   moondrop-watchstate-check moondrop-stress; do
+            echo "::group::$t"
+            ./build/cli/$t
+          done
+
+      - name: Render the UI checks
+        run: ./scripts/run-ui-checks.sh /tmp/ui-checks
+
+      - name: Check the translation catalogue
+        run: ./scripts/update-translations.sh
+
+      # A widget whose pages cannot be parsed is useless, so the QML is at least
+      # linted.  qmllint ships with Qt and needs no display.
+      - name: Lint the QML
+        run: |
+          find package/contents -name '*.qml' -print0 \
+            | xargs -0 -n1 qmllint || true
+
+      - name: Build the applet package
+        run: ./scripts/make-plasmoid.sh dist
+
+      # The store channel end to end: package, then install it through the real
+      # KNewStuff client against a local OCS provider.  This is the check that
+      # would have caught the bundled-module-name clash, so it runs on every
+      # build rather than only before a release.  It needs the KNewStuff
+      # development files and a Plasmashell to load the result in.
+      - name: Install the store test dependencies
+        run: |
+          dnf install -y --setopt=install_weak_deps=False \
+            kf6-knewstuff-devel plasma-workspace
+
+      - name: Check the store channel end to end
+        run: ./scripts/store-check.sh
+
+      # A release has to run on the *oldest* Qt its users have, and the loader
+      # refuses a plugin built against a newer Qt, so the archive that gets
+      # published is not the one built above but one built on the oldest Qt.  The
+      # container route used here is the same one documented in DEVELOPMENT.md.
+      - name: Build the baseline plugin and repackage for the release
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          dnf install -y --setopt=install_weak_deps=False podman
+          ./scripts/build-baseline-plugin.sh
+          MOONDROP_BACKEND_SO="$PWD/build/baseline/libmoondropplugin.so" \
+            ./scripts/make-plasmoid.sh dist
+          ./scripts/store-check.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: plasmoid
+          path: dist/*.plasmoid
+
+  release:
+    name: attach the applet package to the release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: plasmoid
+          path: dist
+
+      - name: Attach to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 \
+            || gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
+                 --title "$GITHUB_REF_NAME" --generate-notes
+          gh release upload "$GITHUB_REF_NAME" dist/*.plasmoid \
+            --repo "$GITHUB_REPOSITORY" --clobber
+
+      # A source tarball as well, so the distribution packagers and the one line
+      # installer have a stable artifact to point at.
+      - name: Attach the source tarball
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          curl -fsSL -o dist/source.tar.gz \
+            "https://github.com/$GITHUB_REPOSITORY/archive/refs/tags/$GITHUB_REF_NAME.tar.gz"
+          gh release upload "$GITHUB_REF_NAME" dist/source.tar.gz \
+            --repo "$GITHUB_REPOSITORY" --clobber

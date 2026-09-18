@@ -1,0 +1,33 @@
+Source: moondrop-control
+Section: kde
+Priority: optional
+Maintainer: FEAKEuser <feohz@users.noreply.github.com>
+Build-Depends: debhelper-compat (= 13),
+               cmake,
+               ninja-build,
+               qt6-base-dev,
+               qt6-declarative-dev,
+               extra-cmake-modules,
+               libkf6i18n-dev,
+               gettext
+Standards-Version: 4.6.2
+Homepage: https://github.com/FEAKEuser/moondrop-control
+Rules-Requires-Root: no
+
+Package: moondrop-control
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends},
+         qml6-module-qtquick,
+         qml6-module-qtquick-layouts,
+         plasma-workspace
+Description: KDE Plasma applet to control MOONDROP Bluetooth headphones
+ Noise cancelling modes, tuning presets, a five band parametric EQ, the
+ LDAC/LC3/LHDC switches, DAC gain, multipoint and battery levels, all read
+ and written over the headphone's RFCOMM control channel.
+ .
+ The applet talks to the headphone directly through an AF_BLUETOOTH socket as
+ the ordinary user; it needs neither root nor bluetoothctl.
+ .
+ Verified on MOONDROP EDGE (firmware 1.4.0) and Moondrop Nekocake (firmware
+ 1.0.0).  Profiles for other models come from public protocol documentation
+ and are shown as unverified in the user interface.

@@ -1,5 +1,6 @@
 # build output
 build/
+dist/
 *.user
 
 # reference material: other people's repositories, cloned locally for reading.

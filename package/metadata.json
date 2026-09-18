@@ -6,8 +6,8 @@
             }
         ],
         "Category": "Hardware",
-        "Description": "Control MOONDROP Bluetooth headphones: noise cancelling, EQ presets, 5 band parametric EQ, LDAC and battery",
-        "Description[zh_CN]": "控制水月雨蓝牙耳机：降噪模式、调音预设、五段参数均衡器、LDAC 与电量",
+        "Description": "Control MOONDROP headphones: noise cancelling, EQ presets, LDAC and battery",
+        "Description[zh_CN]": "控制水月雨耳机：降噪、均衡器预设、LDAC 与电量",
         "Icon": "audio-headphones",
         "Id": "org.moondrop.control",
         "License": "GPL-3.0-or-later",
