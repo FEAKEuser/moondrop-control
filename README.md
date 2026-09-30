@@ -198,8 +198,11 @@ podman run --rm -v "$PWD:/src:ro" -v "$PWD/dist:/out:z" debian:trixie \
 发行版包没有 Qt 版本闸门问题：它们是针对各发行版自己的 Qt 现场编译的。
 
 推送 `v*` tag 后，`.github/workflows/build.yml` 会跑全套检查（含商店流程），
-并**在最老 Qt 的容器里重新打一次包**再挂到 Release —— 否则 Release 产物在老发行版上
-会因 Qt 版本闸门而装不上。
+并**在 `fedora:40`（Qt 6.8）的作业容器里重新构建、打包、再跑一遍商店检查**，
+把这一份挂到 Release —— 否则 Release 产物在老发行版上会因 Qt 版本闸门而装不上。
+这一步是独立 job（`baseline`）而不是 build job 里的一步：基线 Qt 必须是 job
+自己的环境，在容器里再起容器是 runner 不允许的。该 job 自带的商店检查意味着
+发布的包是**在最老 Qt 上验证过**的，而不是只在开发机上能跑。
 
 ### 4.4 从源码手动装
 

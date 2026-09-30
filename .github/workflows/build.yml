@@ -80,35 +80,74 @@ jobs:
       - name: Check the store channel end to end
         run: ./scripts/store-check.sh
 
-      # A release has to run on the *oldest* Qt its users have, and the loader
-      # refuses a plugin built against a newer Qt, so the archive that gets
-      # published is not the one built above but one built on the oldest Qt.  The
-      # container route used here is the same one documented in DEVELOPMENT.md.
-      - name: Build the baseline plugin and repackage for the release
-        if: startsWith(github.ref, 'refs/tags/v')
-        run: |
-          dnf install -y --setopt=install_weak_deps=False podman
-          ./scripts/build-baseline-plugin.sh
-          MOONDROP_BACKEND_SO="$PWD/build/baseline/libmoondropplugin.so" \
-            ./scripts/make-plasmoid.sh dist
-          ./scripts/store-check.sh
-
       - uses: actions/upload-artifact@v4
         with:
           name: plasmoid
           path: dist/*.plasmoid
 
+  # A release has to run on the *oldest* Qt its users have, because the loader
+  # refuses a plugin built against a newer Qt than the host ("uses incompatible
+  # Qt library").  The archive published from the job above is built on
+  # fedora:latest, so it would only run on that Qt or newer; the one published
+  # here is built on fedora:40 (Qt 6.8) and runs from there up.
+  #
+  # This is a separate job rather than a step in the one above because the
+  # baseline Qt has to be the *job's* own environment.  Doing it from inside the
+  # build container would mean running containers inside a container, which the
+  # runner does not provide.  fedora:40 is the oldest image carrying both Qt 6
+  # and the KF6 packages this project needs (Fedora 39 predates KF6).  It is
+  # past end of life, so this job will eventually need moving to the next oldest
+  # image that still has the packages - the build is the same everywhere, so
+  # that is a one line change to the image below.
+  baseline:
+    name: package for the release on the oldest Qt
+    runs-on: ubuntu-latest
+    container: fedora:40
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - name: Install build dependencies
+        run: |
+          dnf install -y --setopt=install_weak_deps=False \
+            cmake gcc-c++ ninja-build git zip \
+            qt6-qtbase-devel qt6-qtdeclarative-devel \
+            extra-cmake-modules kf6-ki18n-devel gettext \
+            kf6-kirigami libplasma kf6-kpackage \
+            kf6-knewstuff-devel plasma-workspace dbus-daemon
+
+      - uses: actions/checkout@v4
+
+      - name: Build against the baseline Qt
+        run: |
+          cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build build
+          rpm -q qt6-qtbase
+
+      # The archive is built and then proved, in the environment it is meant to
+      # run in: the store check installs it through the real KNewStuff client
+      # and loads it in a real plasmashell, on the oldest Qt.
+      - name: Package and check the release archive
+        run: |
+          ./scripts/make-plasmoid.sh dist
+          ./scripts/store-check.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: plasmoid-release
+          path: dist/*.plasmoid
+
   release:
     name: attach the applet package to the release
-    needs: build
+    needs: [build, baseline]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
+      # The baseline archive, not the one the build job produced: it is the one
+      # built on the oldest Qt and therefore the one that runs for everybody.
       - uses: actions/download-artifact@v4
         with:
-          name: plasmoid
+          name: plasmoid-release
           path: dist
 
       - name: Attach to the release

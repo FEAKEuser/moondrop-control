@@ -326,6 +326,13 @@ Consequences that are easy to get wrong:
   `MOONDROP_BACKEND_SO=... ./scripts/make-plasmoid.sh` picks that plugin up.
   Note that the project requires Qt 6.5, and Fedora 39 (Qt 6.5) has no KF6
   packages, so 6.8 is the practical floor for a KF6 build.
+* CI does not use that script.  Release packaging runs as its own job whose job
+  container *is* `fedora:40`, which is the same old Qt without having to run
+  containers inside a container - the runner does not allow that.  The job also
+  runs `store-check.sh` there, so the archive it publishes is proved on the
+  oldest Qt.  The script is for doing the same thing by hand on a development
+  machine.  fedora:40 is past end of life, so the image will eventually have to
+  move; it is one line in the workflow.
 * The distro packages do not have this problem: they are rebuilt against the
   distribution's own Qt, so their plugin always matches the host.
 
