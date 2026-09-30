@@ -170,7 +170,8 @@ kpackagetool6 --type Plasma/Applet --install dist/org.moondrop.control-0.1.0.pla
 ```
 
 它会依次验证「打包 → 用**真实 KNewStuff 客户端**（即「获取新部件」背后的代码）从本地
-OCS 提供者下载并安装 → 在真实 plasmashell 里加载」。需要 `kf6-knewstuff-devel`；
+OCS 提供者下载并安装 → 在真实 plasmashell 里加载」。依赖：`kf6-kpackage`（`kpackagetool6`）、
+`kf6-knewstuff-devel`、`plasma-workspace`（`plasmawindowed`），容器里还需要 `dbus-daemon`。
 缺依赖时它会明确报 SKIP 并以非零退出，不会伪装成通过。
 
 ### 4.3 发行版包
@@ -381,8 +382,8 @@ MOONDROP_PREVIEW_CONNECT=1 QT_QPA_PLATFORM=offscreen \
 ./scripts/store-check.sh
 ```
 
-`store-check.sh` 需要 `kf6-knewstuff-devel`；缺依赖时会明确报 SKIP 并以非零退出，
-不会伪装成通过。它不联网、不发布任何东西，全部写在临时 XDG 目录下。
+`store-check.sh` 需要 `kf6-kpackage`、`kf6-knewstuff-devel`、`plasma-workspace`（容器里还要
+`dbus-daemon`）；缺依赖时会明确报 SKIP 并以非零退出，不会伪装成通过。它不联网、不发布任何东西，全部写在临时 XDG 目录下。
 
 修改翻译：
 
