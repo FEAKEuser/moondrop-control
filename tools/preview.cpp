@@ -23,6 +23,8 @@
 
 #include <QDir>
 #include <QFile>
+#include <QFileInfo>
+#include <QTemporaryDir>
 #include <QGuiApplication>
 #include <QImage>
 #include <QQmlComponent>
@@ -204,26 +206,62 @@ int main(int argc, char **argv)
     DebugPrinter debugPrinter(device);
     debugPrinter.setEnabled(qEnvironmentVariableIsSet("MOONDROP_DEBUG"));
 
-    // The page normally imports the installed plugin (org.moondrop.backend); in
-    // fake mode it has to import the module registered above instead.
-    QFile pageFile(page);
-    if (!pageFile.open(QIODevice::ReadOnly)) {
-        std::fprintf(stderr, "could not read %s\n", qPrintable(page));
-        return 1;
-    }
-    QString pageSource = QString::fromUtf8(pageFile.readAll());
+    // Holds the rewritten copy of the page directory in fake mode; empty
+    // otherwise.  Declared out here so it lives until the render is done.
+    QTemporaryDir stagedTree;
+
+    // Fake mode has to rewrite the import in *every* file the page pulls in, not
+    // just the one named on the command line.  The pages are split across
+    // several files (ConnectionHint.qml, AncPage.qml, ...) and each imports the
+    // backend itself, so rewriting only the loaded page left the others bound to
+    // the real plugin - which is never connected here - and the render showed
+    // two different views of the device at once (the header said "connected"
+    // while a hint below it said "not reachable").
+    //
+    // The whole directory is therefore copied to a temporary tree with the
+    // import rewritten, and the page is loaded from there; sibling references
+    // resolve inside the copy.  Outside fake mode the page is used as it is.
+    QString pagePath = page;
     if (!fake.isEmpty()) {
-        pageSource.replace(QLatin1String("org.moondrop.backend"), QLatin1String("org.moondrop.preview"));
+        const QFileInfo pageInfo(page);
+        const QDir sourceDir = pageInfo.absoluteDir();
+        const QStringList uiFiles = sourceDir.entryList({QStringLiteral("*.qml")}, QDir::Files);
+        if (uiFiles.isEmpty()) {
+            std::fprintf(stderr, "no .qml files next to %s to stage\n", qPrintable(page));
+            return 1;
+        }
+        if (!stagedTree.isValid()) {
+            std::fprintf(stderr, "could not create a staging directory\n");
+            return 1;
+        }
+        for (const QString &name : uiFiles) {
+            QFile in(sourceDir.filePath(name));
+            if (!in.open(QIODevice::ReadOnly)) {
+                std::fprintf(stderr, "could not read %s\n", qPrintable(in.fileName()));
+                return 1;
+            }
+            QString source = QString::fromUtf8(in.readAll());
+            source.replace(QLatin1String("org.moondrop.backend"),
+                           QLatin1String("org.moondrop.preview"));
+            QFile out(stagedTree.filePath(name));
+            if (!out.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+                std::fprintf(stderr, "could not write %s\n", qPrintable(out.fileName()));
+                return 1;
+            }
+            out.write(source.toUtf8());
+        }
+        pagePath = stagedTree.filePath(pageInfo.fileName());
     }
 
-    QQmlComponent pageComponent(&engine);
-    pageComponent.setData(pageSource.toUtf8(), QUrl::fromLocalFile(page));
-    if (pageComponent.isError()) {
-        for (const QQmlError &error : pageComponent.errors()) {
-            std::fprintf(stderr, "%s\n", qPrintable(error.toString()));
-        }
+    QFile pageFile(pagePath);
+    if (!pageFile.open(QIODevice::ReadOnly)) {
+        std::fprintf(stderr, "could not read %s\n", qPrintable(pagePath));
         return 1;
     }
+    const QString pageSource = QString::fromUtf8(pageFile.readAll());
+
+    QQmlComponent pageComponent(&engine);
+    pageComponent.setData(pageSource.toUtf8(), QUrl::fromLocalFile(pagePath));
 
     QQmlComponent component(&engine);
     const QString windowQml = QStringLiteral(R"(
