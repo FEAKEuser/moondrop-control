@@ -33,7 +33,14 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# An output directory given on the command line is relative to the *caller's*
+# directory, but the archive is written from inside the staging directory, so
+# the path has to be resolved here rather than at zip time.
 OUT_DIR="${1:-$ROOT/dist}"
+case "$OUT_DIR" in
+    /*) ;;
+    *) OUT_DIR="$PWD/$OUT_DIR" ;;
+esac
 
 # Which plugin goes into the archive, in order of preference:
 #

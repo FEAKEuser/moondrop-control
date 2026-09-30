@@ -384,10 +384,15 @@ cost a debugging round:
   search path (`$XDG_DATA_HOME/knsrcfiles/`), which is why the test needs a
   scratch XDG root rather than an argument.
 
-The check needs the KNewStuff development files; where they are not installed,
-point `MOONDROP_KNS_INCLUDE` at an unpacked copy.  Skipped steps are reported as
-skips and the script exits non-zero, so a missing dependency cannot be mistaken
-for a passing store test:
+Step 1 needs `kpackagetool6` (kf6-kpackage on Fedora) and step 2 needs the
+KNewStuff development files; where those are not installed, point
+`MOONDROP_KNS_INCLUDE` at an unpacked copy.  Step 3 needs `plasmawindowed`
+(plasma-workspace) and, in a container with no session bus, `dbus-run-session`
+(dbus-daemon) - the script starts plasmashell under it when it is present.  It
+reads plasmashell's output from the process with `QT_FORCE_STDERR_LOGGING=1`
+rather than from the journal, so it works where there is no journal at all.
+Skipped steps are reported as skips and the script exits non-zero, so a missing
+dependency cannot be mistaken for a passing store test:
 
 ```bash
 ./scripts/store-check.sh                    # full run (needs kf6-knewstuff-devel)

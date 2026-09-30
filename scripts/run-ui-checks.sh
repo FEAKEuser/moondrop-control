@@ -12,6 +12,13 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUT="${1:-/tmp/moondrop-ui-checks}"
+
+# The renders are produced from inside $ROOT, so a relative output directory
+# would otherwise be resolved against the wrong place.
+case "$OUT" in
+    /*) ;;
+    *) OUT="$PWD/$OUT" ;;
+esac
 UI_DIR="$ROOT/package/contents/ui"
 PREVIEW="$ROOT/build/cli/preview"
 

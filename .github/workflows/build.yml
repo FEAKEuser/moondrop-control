@@ -13,12 +13,17 @@ jobs:
     runs-on: ubuntu-latest
     container: fedora:latest
     steps:
+      # The build needs the apps' and the tooling's dependencies, the QML
+      # modules the applet imports (kf6-kirigami, libplasma), and kf6-kpackage
+      # for kpackagetool6, which is what actually installs and validates the
+      # `.plasmoid` archive.
       - name: Install build dependencies
         run: |
           dnf install -y --setopt=install_weak_deps=False \
             cmake gcc-c++ ninja-build git zip \
             qt6-qtbase-devel qt6-qtdeclarative-devel \
-            extra-cmake-modules kf6-ki18n-devel gettext
+            extra-cmake-modules kf6-ki18n-devel gettext \
+            kf6-kirigami libplasma kf6-kpackage
 
       - uses: actions/checkout@v4
 
@@ -48,11 +53,15 @@ jobs:
         run: ./scripts/update-translations.sh
 
       # A widget whose pages cannot be parsed is useless, so the QML is at least
-      # linted.  qmllint ships with Qt and needs no display.
+      # linted.  qmllint needs no display, but Fedora puts it under the Qt lib
+      # directory rather than on PATH.  Import warnings are expected here (the
+      # applet's own module is not installed into this container), so what is
+      # checked is that the tool ran at all and reported no errors.
       - name: Lint the QML
         run: |
-          find package/contents -name '*.qml' -print0 \
-            | xargs -0 -n1 qmllint || true
+          QMLLINT="$(command -v qmllint || echo /usr/lib64/qt6/bin/qmllint)"
+          [ -x "$QMLLINT" ] || { echo "qmllint not found; install qt6-qtdeclarative-devel" >&2; exit 1; }
+          find package/contents -name '*.qml' -print0 | xargs -0 -r -n1 "$QMLLINT"
 
       - name: Build the applet package
         run: ./scripts/make-plasmoid.sh dist
@@ -61,11 +70,12 @@ jobs:
       # KNewStuff client against a local OCS provider.  This is the check that
       # would have caught the bundled-module-name clash, so it runs on every
       # build rather than only before a release.  It needs the KNewStuff
-      # development files and a Plasmashell to load the result in.
+      # development files, a Plasmashell to load the result in, and dbus-daemon
+      # for the dbus-run-session that gives that plasmashell a session bus.
       - name: Install the store test dependencies
         run: |
           dnf install -y --setopt=install_weak_deps=False \
-            kf6-knewstuff-devel plasma-workspace
+            kf6-knewstuff-devel plasma-workspace dbus-daemon
 
       - name: Check the store channel end to end
         run: ./scripts/store-check.sh

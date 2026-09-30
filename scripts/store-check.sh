@@ -14,11 +14,13 @@
 # nothing is published and the real store is not touched.  Everything is written
 # under a scratch XDG root: the user's own plasmoids and configuration are never
 # modified.
-#
+
 # Step 2 needs the KNewStuff development files (kf6-knewstuff-devel on Fedora,
-# libkf6newstuff-dev on Debian).  The script builds the test program against the
-# installed runtime library if the headers are present, and skips step 2 with a
-# clear message if they are not - steps 1 and 3 still run.
+# libkf6newstuff-dev on Debian) and skips with a clear message if they are
+# absent.  Step 3 loads what step 2 installed, so it is skipped along with it.
+#
+# Step 3 needs plasmawindowed (plasma-workspace).  It reads the run's output from
+# the process itself rather than the journal, so it also works in a container.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -149,19 +151,46 @@ EOF
         # The import-resolution lines only appear with the QML import debug
         # category enabled, which is also what makes the check meaningful: it
         # shows each page resolving the backend that sits next to it.
+        #
+        # Two container details are handled here.  plasmashell needs a session
+        # bus, which a bare container has none of, so it is started under
+        # dbus-run-session when that is available; and it normally logs to the
+        # journal, which containers also lack, so Qt is told to log to the
+        # console and the output is read from the pipe.  The journal is still
+        # consulted as a fallback for a host that logs only there.
+        RUN=()
+        if command -v dbus-run-session >/dev/null 2>&1; then
+            RUN=(dbus-run-session --)
+        fi
+        LOG_FILE="$WORK/plasmashell.log"
         XDG_DATA_HOME="$WORK/data" QT_QPA_PLATFORM=offscreen \
+            QT_FORCE_STDERR_LOGGING=1 \
             QT_LOGGING_RULES="qt.qml.import.debug=true" \
-            timeout 18 plasmawindowed org.moondrop.control >/dev/null 2>&1 || true
-        LOG="$(journalctl --user --since "-45s" --no-pager 2>/dev/null | tail -400)"
+            timeout 20 "${RUN[@]}" plasmawindowed org.moondrop.control \
+            >"$LOG_FILE" 2>&1 || true
+
+        LOG="$(cat "$LOG_FILE" 2>/dev/null || true)"
+        if ! grep -q "qmldir" "$LOG_FILE" 2>/dev/null; then
+            # A host that logs only to the journal, or a plasmashell that died
+            # before importing anything: fall back so the verdict below is not
+            # made on an empty log.
+            LOG="$(journalctl --user --since "-45s" --no-pager 2>/dev/null | tail -400 || true)"
+        fi
 
         if echo "$LOG" | grep -qiE "Cannot install|is not a type|is not installed|uses incompatible|does not contain a module|error when loading"; then
             echo "$LOG" | grep -iE "Cannot install|is not a type|is not installed|uses incompatible|does not contain a module|error when loading" >&2
             fail "plasmashell rejected the KNewStuff-installed package"
         fi
+
         # The pages have to have resolved the backend that sits next to them.
         resolved="$(echo "$LOG" | grep -c "plasmoids/org.moondrop.control/contents/ui/backend/qmldir" || true)"
-        [ "$resolved" -gt 0 ] \
-            || fail "no page resolved the bundled backend (plasmashell may not have started)"
+        if [ "$resolved" -eq 0 ]; then
+            # Say *why* rather than reporting the symptom: this is nearly always
+            # plasmashell failing to start at all (no session bus, no display).
+            echo "--- plasmashell output ---" >&2
+            echo "$LOG" | tail -20 >&2
+            fail "no page resolved the bundled backend (plasmashell did not start, or never loaded a page)"
+        fi
         pass "plasmashell loaded it cleanly: $resolved pages resolved the bundled backend"
     fi
 fi
