@@ -36,9 +36,9 @@ PlasmoidItem {
     fullRepresentation: FullRepresentation {
     }
 
+    Plasmoid.icon: "org.moondrop.control"
     Plasmoid.title: i18n("Moondrop Control")
     toolTipMainText: i18n("Moondrop Control")
-    toolTipSubText: {
         let text = Moondrop.model.length > 0 ? Moondrop.model : i18n("MOONDROP headphone")
         text += "\n" + Moondrop.statusText
         // show every battery the headphone reports (earbuds have two, plus a case)

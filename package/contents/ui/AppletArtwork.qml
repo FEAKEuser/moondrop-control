@@ -18,10 +18,9 @@ QtObject {
     readonly property string headphonesTemplate:
         "<?xml version=\"1.0\" encoding=\"UTF-8\"?>" +
         "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" width=\"24\" height=\"24\">" +
-        "<path d=\"M4.6 14.2 V 12 A 7.4 7.4 0 0 1 19.4 12 V 14.2\" fill=\"none\" stroke=\"%1\" " +
-        "stroke-width=\"2.1\" stroke-linecap=\"round\"/>" +
-        "<rect x=\"2.1\" y=\"12.6\" width=\"5.3\" height=\"8.6\" rx=\"2.65\" fill=\"%1\"/>" +
-        "<rect x=\"16.6\" y=\"12.6\" width=\"5.3\" height=\"8.6\" rx=\"2.65\" fill=\"%1\"/>" +
+        "<path fill=\"%1\" d=\"M 12 2 C 7.014 2 3 6.015 3 11.0025 l 0 6.0015 c 0 0 0 3.00075 3 3.00075 l 0.001 0 0 -7.502 -0.001 0 0 -1.5004 c 0 -3.32485 2.676 -6.0015 6 -6.0015 3.324 0 6 2.6767 6 6.0015 l 0 0.99535 0.001 0 0 8.007 C 18.0065 20.0037 21 20.0007 21 17.0032 l 0 -6.0015 C 21 6.0142 16.986 1.9992 12 1.9992 Z\"/>" +
+        "<rect x=\"6\" y=\"14\" width=\"3\" height=\"7\" rx=\"0.8\" fill=\"%1\" opacity=\"0.75\"/>" +
+        "<rect x=\"15\" y=\"14\" width=\"3\" height=\"7\" rx=\"0.8\" fill=\"%1\" opacity=\"0.75\"/>" +
         "</svg>"
 
     // Battery shell, upright: outline plus the terminal nub on top.
