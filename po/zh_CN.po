@@ -115,6 +115,15 @@ msgstr "未连接。请点击上方的「连接」按钮，或在小组件设置
 msgid "This headphone does not report a noise cancelling interface. Press “Refresh” on the info page and try again."
 msgstr "此耳机没有报告降噪接口。请在「信息」页面点击「刷新」后重试。"
 
+msgid "Restore the last noise cancelling mode when the headphone connects"
+msgstr "连接耳机时恢复上次的降噪状态"
+
+msgid "The widget always shows the mode the headphone reports. With this on, the mode last set here is written back after connecting - useful for models that start with noise cancelling off."
+msgstr "小组件始终显示耳机上报的模式。开启后，每次连接都会把这里最后设置的降噪模式写回耳机——适用于开机后降噪关闭的机型。"
+
+msgid "Remembered for this headphone: %1."
+msgstr "此耳机记住的模式：%1。"
+
 # ---- tuning / equalizer -------------------------------------------------
 msgid "Tuning"
 msgstr "调音"
@@ -329,6 +338,12 @@ msgstr "无法通过系统总线访问 BlueZ。"
 
 msgid "This headphone does not report noise cancelling support."
 msgstr "此耳机没有报告支持降噪。"
+
+msgid "The headphone already reports the remembered noise cancelling mode"
+msgstr "耳机上报的已经是记住的降噪模式"
+
+msgid "Restoring the noise cancelling mode last set for this headphone"
+msgstr "正在恢复此耳机上次设置的降噪模式"
 
 msgid "The parametric EQ needs exactly 5 bands."
 msgstr "参数均衡器需要正好 5 段。"
