@@ -2099,17 +2099,26 @@ void MoondropDevice::applyAncMode(int mode, bool userAction)
         enqueue(settle);
     } else {
         // A restore runs behind the state refresh, so the write has to queue up
-        // like every other request; the missing acknowledgement doubles as the
-        // settling time the firmware needs.
+        // like every other request.  Its own wait is short (the EDGE does not
+        // acknowledge the set at all); the settle slot after it is what keeps
+        // commands away for the two seconds the engine switch needs - and it
+        // still applies when a model *does* acknowledge the set.
         Request write;
         write.feature = feature;
         write.command = command;
         write.payload = QByteArray(1, char(deviceValue));
         write.expectReply = false;
-        write.timeoutMs = 2200;
+        write.timeoutMs = 250;
         write.maxAttempts = 1;
         write.what = QStringLiteral("anc-restore");
         enqueue(write);
+
+        Request settle;
+        settle.silent = true;
+        settle.timeoutMs = 2200;
+        settle.maxAttempts = 1;
+        settle.what = QStringLiteral("anc-settle");
+        enqueue(settle);
     }
 
     // remember what was asked for, so the next connection can put it back
@@ -2160,6 +2169,11 @@ void MoondropDevice::restoreSavedAncMode()
         || m_ancPath == AncPathUnknown) {
         return;
     }
+    // The decision belongs to this connection: once the command family is
+    // known, a later refresh in the same session must not write anything, even
+    // when nothing was remembered at connect time (the mode may have been set
+    // here afterwards, and the headphone may have been switched by hand since).
+    m_ancRestorePending = true;
     const int saved = savedAncMode();
     if (saved < 0) {
         return; // nothing to put back yet
@@ -2167,10 +2181,8 @@ void MoondropDevice::restoreSavedAncMode()
     const int wanted = effectiveAncMode(m_ancPath, saved);
     if (wanted < 0 || deviceValueForAncMode(m_ancPath, wanted) < 0) {
         // this command family cannot express the remembered mode
-        m_ancRestorePending = true;
         return;
     }
-    m_ancRestorePending = true;
     if (m_ancMode == wanted) {
         // the headphone kept it by itself, no reason to write anything
         Q_EMIT logMessage(moondropTr("The headphone already reports the remembered noise cancelling mode"));

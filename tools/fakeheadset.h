@@ -112,6 +112,17 @@ public:
     // attempt fails with EBUSY, like a real headphone whose slot is taken.
     void setBusy(bool busy) { m_busy = busy; }
 
+    // Model a firmware that acknowledges the ANC set command and needs
+    // `milliseconds` before the new mode is what a read reports.  The EDGE
+    // neither acknowledges the set nor is queried this early (docs/PROTOCOL.md
+    // measures it); models whose SET does answer must still not be verified
+    // while their engine is switching.  A negative value switches the model
+    // back to the EDGE behaviour (no ACK, mode is live immediately).
+    void setAncSetAckDelay(int milliseconds) { m_ancSetAckDelayMs = milliseconds; }
+
+    // Pretend the mode was changed on the headphone itself (touch control).
+    void setAncMode(int mode) { m_ancMode = mode; }
+
     // the UI mode (0 = off, 1 = anc, 2 = transparency, 3 = wind) stays the same,
     // only the wire encoding differs between writing and reading
     static int writeValueToUiMode(int value)
@@ -237,8 +248,9 @@ private:
             } else if (command == 4 && !sent.payload.isEmpty()) {
                 const int mode = writeValueToUiMode(quint8(sent.payload.at(0)));
                 if (mode >= 0) {
-                    m_ancMode = mode;
+                    applyAncMode(mode);
                 }
+                acknowledgeAncSet(feature, command);
             }
             return;
         }
@@ -248,7 +260,8 @@ private:
             if (command == 3) {
                 reply(feature, 3, QByteArray(1, char(quint8(m_ancMode))));
             } else if (command == 4 && !sent.payload.isEmpty() && quint8(sent.payload.at(0)) <= 3) {
-                m_ancMode = quint8(sent.payload.at(0));
+                applyAncMode(quint8(sent.payload.at(0)));
+                acknowledgeAncSet(feature, command);
             }
             return;
         }
@@ -261,6 +274,24 @@ private:
         if (feature == FeatureDacGain && command == 1 && m_model == Edge) {
             reply(feature, 1, QByteArray(1, char(quint8(m_gain))));
             return;
+        }
+    }
+
+    // Apply a mode the way the modelled firmware does: immediately, or after
+    // the modelled engine switch delay when the set is acknowledged.
+    void applyAncMode(int mode)
+    {
+        if (m_ancSetAckDelayMs < 0) {
+            m_ancMode = mode;
+            return;
+        }
+        QTimer::singleShot(m_ancSetAckDelayMs, this, [this, mode] { m_ancMode = mode; });
+    }
+
+    void acknowledgeAncSet(quint16 feature, quint8 command)
+    {
+        if (m_ancSetAckDelayMs >= 0) {
+            reply(feature, command, QByteArray(1, char(quint8(m_ancMode))));
         }
     }
 
@@ -287,6 +318,8 @@ private:
     int m_expectedChannel = 1;
     int m_lastErrno = 0;
     int m_ancMode = 0;
+    // -1 = no ACK (the EDGE), >= 0 = ACK now, mode live after this many ms
+    int m_ancSetAckDelayMs = -1;
     int m_preset = 0x3F;
     int m_gain = 0;
     bool m_ldac = false;
