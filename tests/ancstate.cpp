@@ -171,6 +171,44 @@ int main(int argc, char **argv)
         device.disconnectDevice();
     }
 
+    // --- 4. a model that acknowledges the set still gets its settling time -----
+    // The EDGE does not answer the ANC set, so the widget's own wait used to
+    // cover the engine switch.  A model that *does* answer releases the queue
+    // immediately, and verifying right then would read the old mode and show it
+    // (and the restore would look like it failed).
+    {
+        QFile::remove(configPath);
+        {
+            MoondropDevice device(nullptr, new FakeHeadset(FakeHeadset::Edge));
+            device.disableStartupAutoConnect();
+            device.setAddress(address);
+            device.setChannel(1);
+            device.setAncRestoreLast(true);
+            device.connectDevice();
+            check(waitFor([&] { return device.connected(); }), QStringLiteral("remembering: connects"));
+            check(waitFor([&] { return !device.busy(); }), QStringLiteral("remembering: refresh done"));
+            device.setAncMode(AncNoiseCancelling);
+            check(waitFor([&] { return !device.busy(); }, 6000),
+                  QStringLiteral("remembering: the mode is set"));
+            device.disconnectDevice();
+        }
+
+        auto *acked = new FakeHeadset(FakeHeadset::Edge);
+        acked->setAncSetAckDelay(1500); // acknowledges now, mode live 1.5 s later
+
+        MoondropDevice device(nullptr, acked);
+        device.disableStartupAutoConnect();
+        check(device.ancLastMode() == AncNoiseCancelling,
+              QStringLiteral("acking model: the mode is remembered"));
+        device.connectDevice();
+        check(waitFor([&] { return device.connected(); }), QStringLiteral("acking model: connects"));
+        check(waitFor([&] { return !device.busy(); }, 8000),
+              QStringLiteral("acking model: restore and verification finish"));
+        check(device.ancMode() == AncNoiseCancelling,
+              QStringLiteral("acking model: verified only after the engine had time to switch"));
+        device.disconnectDevice();
+    }
+
     QFile::remove(configPath);
 
     std::printf("\n%s\n", failures == 0 ? "all checks passed" : "FAILURES");
