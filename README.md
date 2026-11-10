@@ -134,7 +134,7 @@ curl -fsSL .../scripts/install.sh | bash -s -- --uninstall
 然后在本机验证：
 
 ```bash
-kpackagetool6 --type Plasma/Applet --install dist/org.moondrop.control-0.1.0.plasmoid
+kpackagetool6 --type Plasma/Applet --install dist/org.moondrop.control-0.2.0.plasmoid
 ```
 
 > **这个包为什么能直接装**：本项目的后端是 C++ 插件，商店的部件包默认按纯 QML 处理，

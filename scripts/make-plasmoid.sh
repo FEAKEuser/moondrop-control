@@ -29,7 +29,7 @@
 # The archive is a plain zip; Plasma's KNS entry (Uncompress=kpackage) installs
 # it with kpackagetool6, and the same file can be installed by hand:
 #
-#   kpackagetool6 --type Plasma/Applet --install moondrop-control-0.1.0.plasmoid
+#   kpackagetool6 --type Plasma/Applet --install moondrop-control-0.2.0.plasmoid
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
