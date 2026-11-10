@@ -423,6 +423,10 @@ private:
     int m_ancPath = AncPathUnknown;
     int m_ancMode = -1;
     bool m_ancRestoreLast = false;
+    // Snapshot of the setting taken when the link came up: turning the switch on
+    // while the headphone is already connected must not write into that session,
+    // only into the next connection.
+    bool m_ancRestoreForLink = false;
     // the restore runs at most once per connection
     bool m_ancRestorePending = false;
 
