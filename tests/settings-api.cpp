@@ -108,8 +108,9 @@ int main(int argc, char **argv)
     check(device->address() == QLatin1String("00:11:22:33:44:66"),
           QStringLiteral("setAddress took effect"));
 
-    check(run(QStringLiteral("Moondrop.ancRestoreLast = true")),
+    check(run(QStringLiteral("Moondrop.ancRestoreLast = false")),
           QStringLiteral("the property assignment form still works"));
+    check(!device->ancRestoreLast(), QStringLiteral("the property assignment took effect"));
 
     delete scope;
     QFile::remove(configPath);

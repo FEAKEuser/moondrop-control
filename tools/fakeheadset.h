@@ -30,7 +30,10 @@ class FakeHeadset : public Transport
 {
     Q_OBJECT
 public:
-    enum Model { Edge, Pudding, Robin };
+    // Edge / Pudding / Robin follow the measured or published captures; AncV1 is
+    // a minimal device that only implements the ANC V1 family (feature 2), which
+    // no measured model here does - it exists so that path has any coverage.
+    enum Model { Edge, Pudding, Robin, AncV1 };
 
     explicit FakeHeadset(Model model = Edge, QObject *parent = nullptr)
         : Transport(parent)
@@ -157,6 +160,9 @@ private:
                     reply(feature, 1, QByteArray::fromHex("00010120010d011001"));
                 } else if (m_model == Robin) {
                     reply(feature, 1, QByteArray::fromHex("000108010d01"));
+                } else if (m_model == AncV1) {
+                    // BASIC, BATTERY, ANC - deliberately no AUDIO_CURATION / ANC V2
+                    reply(feature, 1, QByteArray::fromHex("000101010201"));
                 } else {
                     reply(feature, 1, QByteArray::fromHex("000301050101010602000208010f0110011101140115010d01"));
                 }
@@ -167,6 +173,7 @@ private:
             case 4:
                 reply(feature, 4, m_model == Pudding ? QByteArray("MOONDROP Pudding")
                                         : m_model == Robin ? QByteArray("MOONDROP Robin")
+                                        : m_model == AncV1 ? QByteArray("MOONDROP Space Travel")
                                                            : QByteArray("MOONDROP EDGE"));
                 return;
             case 5:
@@ -250,6 +257,18 @@ private:
                 if (mode >= 0) {
                     applyAncMode(mode);
                 }
+                acknowledgeAncSet(feature, command);
+            }
+            return;
+        }
+
+        if (feature == FeatureAnc) {
+            // ANC V1: written with command 1, read with command 4; values are
+            // only 0 (off) / 1 (on).
+            if (command == 4) {
+                reply(feature, 4, QByteArray(1, char(m_ancMode == 0 ? 0 : 1)));
+            } else if (command == 1 && !sent.payload.isEmpty()) {
+                applyAncMode(quint8(sent.payload.at(0)) == 0 ? 0 : 1);
                 acknowledgeAncSet(feature, command);
             }
             return;

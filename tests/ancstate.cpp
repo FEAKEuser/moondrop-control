@@ -18,8 +18,10 @@
 #include <QElapsedTimer>
 #include <QEventLoop>
 #include <QFile>
+#include <QStringList>
 #include <QTimer>
 
+#include <algorithm>
 #include <cstdio>
 
 using namespace Moondrop;
@@ -58,6 +60,21 @@ void watchRestoreFrames(MoondropDevice &device, int *count)
         if (message.startsWith(QLatin1String("TX ")) && message.contains(QLatin1String("(anc-restore)"))) {
             ++(*count);
         }
+    });
+}
+
+// every protocol log line, for checks that look at what went over the wire
+void watchLog(MoondropDevice &device, QStringList *lines)
+{
+    QObject::connect(&device, &MoondropDevice::logMessage, [lines](const QString &message) {
+        lines->append(message);
+    });
+}
+
+bool sentFrame(const QStringList &lines, const QString &featureCommandHex)
+{
+    return std::any_of(lines.cbegin(), lines.cend(), [&featureCommandHex](const QString &line) {
+        return line.startsWith(QLatin1String("TX ")) && line.contains(featureCommandHex);
     });
 }
 
@@ -105,7 +122,8 @@ int main(int argc, char **argv)
 
     // --- 2. restoring it after a new connection -----------------------------
     {
-        MoondropDevice device(nullptr, new FakeHeadset(FakeHeadset::Edge));
+        auto *fake = new FakeHeadset(FakeHeadset::Edge);
+        MoondropDevice device(nullptr, fake);
         device.disableStartupAutoConnect();
         int restoreFrames = 0;
         watchRestoreFrames(device, &restoreFrames);
@@ -114,6 +132,9 @@ int main(int argc, char **argv)
               QStringLiteral("the remembered mode survives a restart"));
         check(!device.ancRestoreLast(),
               QStringLiteral("restoring is off by default (the headphone's own mode is used)"));
+
+        QStringList log;
+        watchLog(device, &log);
 
         device.connectDevice();
         check(waitFor([&] { return device.connected(); }), QStringLiteral("second session connects"));
@@ -131,6 +152,10 @@ int main(int argc, char **argv)
         check(device.ancMode() == AncNoiseCancelling,
               QStringLiteral("the remembered mode was written back after connecting"));
         check(restoreFrames == 1, QStringLiteral("the restore writes exactly once per connection"));
+        check(std::none_of(log.cbegin(), log.cend(), [](const QString &line) {
+                  return line.contains(QLatin1String("no answer for anc-restore"));
+              }),
+              QStringLiteral("the unacknowledged restore write is not reported as a failure"));
 
         // idle time must not touch the mode again
         for (int i = 0; i < 20; ++i) {
@@ -140,6 +165,18 @@ int main(int argc, char **argv)
         }
         check(restoreFrames == 1 && device.ancMode() == AncNoiseCancelling,
               QStringLiteral("the restore does not repeat while connected"));
+
+        // The decision for this connection is final: a mode switched on the
+        // headphone itself after the restore must survive a refresh, even though
+        // the remembered mode is still the old one.
+        fake->setAncMode(AncOff);
+        device.refresh();
+        check(waitFor([&] { return !device.busy(); }, 8000),
+              QStringLiteral("refresh after a hand change finishes"));
+        check(device.ancMode() == AncOff,
+              QStringLiteral("a hand change after the restore survives a refresh"));
+        check(restoreFrames == 1,
+              QStringLiteral("the already made decision is not revisited by a refresh"));
         device.disconnectDevice();
     }
 
@@ -168,6 +205,16 @@ int main(int argc, char **argv)
               QStringLiteral("a refresh keeps the mode the headphone reports"));
         check(restoreFrames == 0,
               QStringLiteral("a headphone that already reports the remembered mode is not written to"));
+
+        // reconnect while the headphone is already in the remembered mode: the
+        // decision has to stop at the comparison, not write "the same" again
+        device.disconnectDevice();
+        device.connectDevice();
+        check(waitFor([&] { return device.connected(); }), QStringLiteral("reconnects in the remembered mode"));
+        check(waitFor([&] { return !device.busy(); }, 8000),
+              QStringLiteral("refresh in the remembered mode finishes"));
+        check(device.ancMode() == AncNoiseCancelling && restoreFrames == 0,
+              QStringLiteral("a matching mode is not written on the next connection either"));
         device.disconnectDevice();
     }
 
@@ -206,6 +253,92 @@ int main(int argc, char **argv)
               QStringLiteral("acking model: restore and verification finish"));
         check(device.ancMode() == AncNoiseCancelling,
               QStringLiteral("acking model: verified only after the engine had time to switch"));
+        device.disconnectDevice();
+    }
+
+    // --- 5. flipping the switch mid-session leaves the running link alone -----
+    // The restore behaviour is fixed when the link comes up.  Enabling it while
+    // the headphone is already connected must not rewrite a mode the user set
+    // afterwards (on the headphone itself, for example).
+    {
+        QFile::remove(configPath);
+        auto *fake = new FakeHeadset(FakeHeadset::Edge);
+        MoondropDevice device(nullptr, fake);
+        device.disableStartupAutoConnect();
+        device.setAddress(address);
+        device.setChannel(1);
+
+        // session 1: remember ANC (the switch is still off)
+        device.connectDevice();
+        check(waitFor([&] { return device.connected(); }), QStringLiteral("touch: first session connects"));
+        check(waitFor([&] { return !device.busy(); }), QStringLiteral("touch: first session refresh"));
+        device.setAncMode(AncNoiseCancelling);
+        check(waitFor([&] { return !device.busy(); }, 6000), QStringLiteral("touch: ANC is remembered"));
+        device.disconnectDevice();
+
+        // session 2: connect with the switch off, then change the mode by hand
+        int restoreFrames = 0;
+        watchRestoreFrames(device, &restoreFrames);
+        device.connectDevice();
+        check(waitFor([&] { return device.connected(); }), QStringLiteral("touch: second session connects"));
+        check(waitFor([&] { return !device.busy(); }), QStringLiteral("touch: second session refresh"));
+        check(device.ancMode() == AncNoiseCancelling, QStringLiteral("touch: the headphone reports the remembered mode"));
+
+        fake->setAncMode(AncTransparency); // on the headphone itself
+        device.setAncRestoreLast(true); // enabled while this link is already up
+        device.refresh();
+        check(waitFor([&] { return !device.busy(); }, 8000), QStringLiteral("touch: refresh finishes"));
+        check(device.ancMode() == AncTransparency,
+              QStringLiteral("the switch turned on mid-session does not rewrite the running connection"));
+        check(restoreFrames == 0, QStringLiteral("no restore frame was written inside the running connection"));
+        device.disconnectDevice();
+    }
+
+    // --- 6. the ANC V1 family (feature 2) ----------------------------------
+    // No measured model implements it, so nothing but a fake can cover the path;
+    // that is exactly why it is here: the write/read/verify mapping is only
+    // claimed by the protocol notes.
+    {
+        QFile::remove(configPath);
+        auto *v1 = new FakeHeadset(FakeHeadset::AncV1);
+        MoondropDevice device(nullptr, v1);
+        device.disableStartupAutoConnect();
+        device.setAddress(address);
+        device.setChannel(1);
+
+        QStringList log;
+        watchLog(device, &log);
+
+        device.connectDevice();
+        check(waitFor([&] { return device.connected(); }), QStringLiteral("V1: connects"));
+        check(waitFor([&] { return !device.busy(); }), QStringLiteral("V1: refresh finishes"));
+        check(device.ancPath() == AncPathAncV1, QStringLiteral("V1: the ANC command family is detected"));
+        check(device.ancMode() == AncOff, QStringLiteral("V1: the reported mode is off"));
+
+        log.clear();
+        device.setAncMode(AncNoiseCancelling);
+        check(waitFor([&] { return !device.busy(); }, 6000), QStringLiteral("V1: the ANC switch completes"));
+        check(device.ancMode() == AncNoiseCancelling, QStringLiteral("V1: the mode is applied and verified"));
+        check(sentFrame(log, QStringLiteral("1d 04 04")),
+              QStringLiteral("V1: the verification read uses feature 2 (command 4)"));
+
+        device.setAncMode(AncTransparency);
+        check(waitFor([&] { return !device.busy(); }, 6000), QStringLiteral("V1: the transparency switch completes"));
+        check(device.ancMode() == AncNoiseCancelling,
+              QStringLiteral("V1: transparency folds into the on/off value the family has"));
+
+        device.disconnectDevice();
+        v1->setAncMode(AncOff); // switched on the headphone while disconnected
+
+        device.setAncRestoreLast(true);
+        log.clear();
+        device.connectDevice();
+        check(waitFor([&] { return device.connected(); }), QStringLiteral("V1: reconnects"));
+        check(waitFor([&] { return !device.busy(); }, 8000),
+              QStringLiteral("V1: the restore and its verification finish"));
+        check(device.ancMode() == AncNoiseCancelling, QStringLiteral("V1: the remembered mode is restored"));
+        check(sentFrame(log, QStringLiteral("1d 04 01")),
+              QStringLiteral("V1: the restore writes the V1 on value"));
         device.disconnectDevice();
     }
 
