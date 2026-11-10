@@ -10,7 +10,7 @@ The response shape matches what api.kde-look.org returns (verified against the
 live service): a flat object with status/statuscode/data, and one entry per
 content item carrying downloadlink1 / downloadname1 / xdg_type.
 
-    python3 tools/ocs-provider.py --port 8099 --plasmoid dist/org.moondrop.control-0.1.0.plasmoid
+    python3 tools/ocs-provider.py --port 8099 --plasmoid dist/org.moondrop.control-0.2.0.plasmoid
 
 Then point a throwaway KNS config at it:
 
@@ -54,7 +54,7 @@ def entry(plasmoid_path, base_url):
         "details": "summary",
         "id": 1,
         "name": "Moondrop Control",
-        "version": "0.1.0",
+        "version": "0.2.0",
         "typeid": 706,
         "typename": "Plasma 6 Applets",
         "xdg_type": "plasma6_plasmoids",
