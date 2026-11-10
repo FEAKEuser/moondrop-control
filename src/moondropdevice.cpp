@@ -1481,10 +1481,14 @@ void MoondropDevice::onRequestTick()
     const Request failed = m_inFlight;
     m_hasInFlight = false;
     Q_EMIT busyChanged();
-    Q_EMIT logMessage(moondropTr("no answer for %1 (feature %2, command %3)")
-                          .arg(failed.what)
-                          .arg(failed.feature)
-                          .arg(failed.command));
+    if (failed.expectReply) {
+        // Commands the firmware does not acknowledge are expected to stay
+        // silent; reporting those as "no answer" hides real timeouts.
+        Q_EMIT logMessage(moondropTr("no answer for %1 (feature %2, command %3)")
+                              .arg(failed.what)
+                              .arg(failed.feature)
+                              .arg(failed.command));
+    }
     if (failed.onTimeout) {
         failed.onTimeout();
     }
@@ -1505,6 +1509,11 @@ bool MoondropDevice::hasFeature(quint16 feature) const
 void MoondropDevice::handshake()
 {
     Q_EMIT logMessage(moondropTr("Connected to %1 on channel %2").arg(m_transport->address()).arg(m_transport->channel()));
+    // Which restore behaviour this link gets is decided here, once per
+    // connection: flipping the switch later must not write into a session the
+    // user started long ago (it applies to the next connection instead).
+    m_ancRestoreForLink = m_ancRestoreLast;
+    m_ancRestorePending = false;
     refresh();
 }
 
@@ -2165,7 +2174,7 @@ void MoondropDevice::rememberAncMode(int mode)
 void MoondropDevice::restoreSavedAncMode()
 {
     // once per connection, and only when the user asked for it
-    if (m_ancRestorePending || !m_ancRestoreLast || !m_transport->isConnected()
+    if (m_ancRestorePending || !m_ancRestoreForLink || !m_transport->isConnected()
         || m_ancPath == AncPathUnknown) {
         return;
     }
