@@ -20,6 +20,12 @@ add_executable(moondrop-conncheck ../tests/connection.cpp ../tools/fakeheadset.h
 target_include_directories(moondrop-conncheck PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/tools)
 target_link_libraries(moondrop-conncheck PRIVATE moondropcore Qt6::Core)
 
+# noise cancelling state across connections (remember + restore, or the mode the
+# headphone reports) against the fake headset
+add_executable(moondrop-ancstate-check ../tests/ancstate.cpp ../tools/fakeheadset.h)
+target_include_directories(moondrop-ancstate-check PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/tools)
+target_link_libraries(moondrop-ancstate-check PRIVATE moondropcore Qt6::Core)
+
 # channel scan check: finds the GAIA channel even when the first candidate
 # accepts the connection and then stays silent.  Runs against the fake headset,
 # or against real hardware when given a Bluetooth address.

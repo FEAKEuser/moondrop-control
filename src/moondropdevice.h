@@ -107,6 +107,11 @@ class MoondropDevice : public QObject
     Q_PROPERTY(int ancPath READ ancPath NOTIFY capabilitiesChanged)
     Q_PROPERTY(int ancMode READ ancMode NOTIFY ancModeChanged)
     Q_PROPERTY(bool ancSupported READ ancSupported NOTIFY capabilitiesChanged)
+    // Write the mode that was last set here back to the headphone after
+    // connecting (models that start with noise cancelling off do not keep it).
+    Q_PROPERTY(bool ancRestoreLast READ ancRestoreLast WRITE setAncRestoreLast NOTIFY settingsChanged)
+    // Mode last set for the selected headphone (-1 = nothing remembered yet)
+    Q_PROPERTY(int ancLastMode READ ancLastMode NOTIFY ancModeChanged)
 
     Q_PROPERTY(bool eqSupported READ eqSupported NOTIFY capabilitiesChanged)
     Q_PROPERTY(int eqBandsCount READ eqBandsCount NOTIFY eqChanged)
@@ -188,6 +193,9 @@ public:
     int ancPath() const { return m_ancPath; }
     int ancMode() const { return m_ancMode; }
     bool ancSupported() const { return m_ancPath != AncPathUnknown; }
+    bool ancRestoreLast() const { return m_ancRestoreLast; }
+    void setAncRestoreLast(bool enabled);
+    int ancLastMode() const { return savedAncMode(); }
 
     bool eqSupported() const { return m_eqSupported; }
     int eqBandsCount() const { return m_bands.size(); }
@@ -343,6 +351,17 @@ private:
     void readBluetoothBattery();
     QString bluezDevicePath() const;
     void rememberDeviceEq(const QVariantList &bands);
+    // Apply an ANC mode.  userAction requests (the UI, the CLI) drop whatever is
+    // queued so the switch feels immediate; a restore after connecting is
+    // appended behind the state refresh instead.
+    void applyAncMode(int mode, bool userAction);
+    // Mode last set for the selected headphone, -1 when nothing is remembered
+    int savedAncMode() const;
+    void rememberAncMode(int mode);
+    // Called once at the end of the initial state refresh: writes the remembered
+    // mode back when the user asked for that and the headphone reports another
+    // one (or that only its own state should be shown).
+    void restoreSavedAncMode();
     void parseAncMode(const QByteArray &payload);
     void parsePresets(const QByteArray &payload);
     void parseSelectedPreset(const QByteArray &payload);
@@ -403,6 +422,9 @@ private:
     // ANC
     int m_ancPath = AncPathUnknown;
     int m_ancMode = -1;
+    bool m_ancRestoreLast = false;
+    // the restore runs at most once per connection
+    bool m_ancRestorePending = false;
 
     // EQ
     bool m_eqSupported = false;
