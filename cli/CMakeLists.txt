@@ -26,6 +26,13 @@ add_executable(moondrop-ancstate-check ../tests/ancstate.cpp ../tools/fakeheadse
 target_include_directories(moondrop-ancstate-check PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/tools)
 target_link_libraries(moondrop-ancstate-check PRIVATE moondropcore Qt6::Core)
 
+# the property setters the settings page calls as QML functions: a Q_PROPERTY
+# WRITE is not callable from QML unless it is also Q_INVOKABLE, which C++ alone
+# cannot notice - only a QML engine can
+add_executable(moondrop-settings-api-check ../tests/settings-api.cpp ../tools/fakeheadset.h)
+target_include_directories(moondrop-settings-api-check PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/tools)
+target_link_libraries(moondrop-settings-api-check PRIVATE moondropcore Qt6::Core Qt6::Qml)
+
 # channel scan check: finds the GAIA channel even when the first candidate
 # accepts the connection and then stays silent.  Runs against the fake headset,
 # or against real hardware when given a Bluetooth address.

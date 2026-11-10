@@ -162,13 +162,13 @@ public:
     // connected check matters: the transport keeps its last channel after a
     // disconnect, and reporting that as "in use" would be wrong.
     int liveChannel() const { return connected() ? m_transport->channel() : 0; }
-    void setAddress(const QString &address);
+    Q_INVOKABLE void setAddress(const QString &address);
     int channel() const { return m_settingsChannel; }
-    void setChannel(int channel);
+    Q_INVOKABLE void setChannel(int channel);
     bool autoConnect() const { return m_autoConnect; }
-    void setAutoConnect(bool enabled);
+    Q_INVOKABLE void setAutoConnect(bool enabled);
     bool autoReconnect() const { return m_autoReconnect; }
-    void setAutoReconnect(bool enabled);
+    Q_INVOKABLE void setAutoReconnect(bool enabled);
 
     QString model() const { return m_model; }
     QString profileId() const { return m_profile.id; }
@@ -194,7 +194,7 @@ public:
     int ancMode() const { return m_ancMode; }
     bool ancSupported() const { return m_ancPath != AncPathUnknown; }
     bool ancRestoreLast() const { return m_ancRestoreLast; }
-    void setAncRestoreLast(bool enabled);
+    Q_INVOKABLE void setAncRestoreLast(bool enabled);
     int ancLastMode() const { return savedAncMode(); }
 
     bool eqSupported() const { return m_eqSupported; }
