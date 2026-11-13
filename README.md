@@ -3,6 +3,18 @@
 控制水月雨（MOONDROP）蓝牙耳机的 KDE Plasma 6 小部件：降噪模式、调音预设、参数均衡器（PEQ）、
 编解码器开关、电量等。使用 Qt 6 / QML 开发，直接通过 Linux 蓝牙 RFCOMM（SPP）与耳机通信。
 
+## 免责声明
+
+* **本项目是非官方项目**，与水月雨（MOONDROP）及其关联公司**没有隶属、合作或背书关系**。
+  “MOONDROP”“水月雨”等名称与商标归其所有者；本项目只用于描述被控制的设备。
+* 协议知识来自官方 App 逆向、公开文档和社区实测，**可能随固件更新失效**。写入类操作（降噪、
+  PEQ、额外设置等）会直接修改耳机内的配置；本项目按现状提供、不附带任何担保，使用风险自负。
+* **本项目不提供固件刷写/OTA**，也不保证未实测机型的行为。只有 EDGE（1.4.0）与 Nekocake（1.0.0）
+  在本项目里上过真机，其余档案均标注为未实测（见 §0.1/§0.2）。
+* 因使用或无法使用本软件造成的设备异常、配置丢失、连接中断或其他损失，作者不承担责任。
+* 参考项目中的“AI 辅助生成”“逆向学习用途”等声明只属于那些项目本身；本项目引用其事实性协议
+  知识，不代表对其代码或用途背书。
+
 ## 0. 实测范围（重要）
 
 本项目**只在两台真机上实际测试过**：
@@ -504,8 +516,15 @@ python3 tools/gaia.py listen 10                  # 只监听通知
 本项目采用 GPL-3.0-or-later，与其中多数上游项目一致，因此代码可以双向互用（见
 [许可](#10-许可)）。
 
-特别感谢：
+特别感谢（按对项目的贡献排序）：
 
+* **[bqj6666/FxxkMoondrop](https://github.com/bqj6666/FxxkMoondrop)**（GPL-3.0；持续更新，
+  截至 2026-11-14 为 alpha2.41.7）—— **本项目最重要的协议来源**：从官方 App 提取的完整
+  Feature/Command 表、按机型实测的 ANC 设备码映射（例如 GA2 与 Space Travel 2 的
+  `[1,2,4,3]`）、GAIA RFCOMM 流式切帧与 capability probe 降级策略、Moondrop 私有 9ECA
+  协议、Fast Pair/系统设置注入的实现经验。本项目的 §13 命令表、机型档案和若干边界行为
+  都以它为交叉核对依据。它是 Android LSPosed 模块，平台不同，本项目没有复制其代码，
+  只采用其中的协议事实。它自述“部分代码由 AI 辅助、逆向仅供研究”，那是该项目的声明。
 * **[pubglite55/SpaceTravel-Protocol](https://github.com/pubglite55/SpaceTravel-Protocol)**（MIT）
   —— GAIA v3 帧结构、Feature/Command 映射。让我第一次看懂了 `FF 04 00 00 00 1D ...` 的含义。
 * **[lingbai-rong/PuddingPods](https://github.com/lingbai-rong/PuddingPods)**
@@ -525,8 +544,6 @@ python3 tools/gaia.py listen 10                  # 只监听通知
   逆向过程与对照表见 [`docs/PROTOCOL.md`](docs/PROTOCOL.md) 第 12 节；本项目只采用其中的
   事实性数据（机型分类、命令编号、参数编码），没有复制 App 的代码。
 
-* [bqj6666/FxxkMoondrop](https://github.com/bqj6666/FxxkMoondrop)（GPL-3.0）
-  —— 从官方 App 提取的完整 Feature/Command 表与 ANC 路径选择逻辑
 * [jeromeof/devicePEQ](https://github.com/jeromeof/devicePEQ)
   —— MOONDROP EDGE 五段 PEQ 的字节格式（增益移位存储、Q×4096、增益×60）
 * [Zhaoyi-ya/TWS-Pods-PC](https://github.com/Zhaoyi-ya/TWS-Pods-PC)（GPL-3.0）
