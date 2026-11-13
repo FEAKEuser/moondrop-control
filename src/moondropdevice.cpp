@@ -90,16 +90,22 @@ int signed16(quint8 hi, quint8 lo)
 } // namespace
 
 // ---------------------------------------------------------------------------
-// 5 band user PEQ payload (39 bytes on EDGE style firmware)
+// User PEQ payload: a 4 byte band range header followed by 7 bytes per band.
+// The measured EDGE firmware has five bands (39 bytes); the official app's
+// catalog also lists ten band models, which only changes the band count, not
+// the per-band layout.
 // ---------------------------------------------------------------------------
-QList<EqBand> decodeUserEq(const QByteArray &payload)
+QList<EqBand> decodeUserEq(const QByteArray &payload, int bandCount)
 {
     QList<EqBand> bands;
-    // 4 byte header + 5 * 7 byte band records
-    if (payload.size() < 4 + 5 * 7) {
+    if (bandCount <= 0) {
+        // fall back to the payload length: 4 byte header, 7 bytes per band
+        bandCount = (payload.size() - 4) / 7;
+    }
+    if (bandCount <= 0 || bandCount > 32 || payload.size() < 4 + bandCount * 7) {
         return bands;
     }
-    for (int i = 0; i < 5; ++i) {
+    for (int i = 0; i < bandCount; ++i) {
         const int off = 4 + (i * 7);
         EqBand band;
         band.frequency = (quint8(payload.at(off)) << 8) | quint8(payload.at(off + 1));
@@ -114,13 +120,13 @@ QList<EqBand> decodeUserEq(const QByteArray &payload)
 
 QByteArray encodeUserEq(const QList<EqBand> &bands)
 {
-    if (bands.size() != 5) {
+    if (bands.isEmpty() || bands.size() > 32) {
         return QByteArray();
     }
     QByteArray out;
-    out.reserve(39);
+    out.reserve(4 + bands.size() * 7);
     out.append(char(0x00));
-    out.append(char(0x04)); // start band / end band header, as emitted by the firmware
+    out.append(char((bands.size() - 1) & 0xFF)); // first band .. last band, as the firmware sends it
     out.append(char(0x00));
     out.append(char(0x00));
     for (const EqBand &band : bands) {
@@ -193,7 +199,7 @@ MoondropDevice::MoondropDevice(QObject *parent, Transport *transport)
             band.insert(QStringLiteral("type"), object.value(QStringLiteral("type")).toInt());
             list.append(band);
         }
-        if (list.size() == 5) {
+        if (!list.isEmpty()) {
             m_deviceEqBackup = list;
         }
     }
@@ -569,6 +575,7 @@ void MoondropDevice::clearDeviceInfo()
     m_features.clear();
     m_featuresKnown = false;
     m_peqBandCount = 0;
+    m_lastWrittenEq.clear();
 
     // fall back to the pre-detection profile for the configured address (or the
     // unknown one when nothing is selected)
@@ -1300,7 +1307,7 @@ void MoondropDevice::handleNotification(const Frame &frame)
         // EQ state / preset changed elsewhere (e.g. a button on the headphone)
         if (notificationRefreshAllowed(FeatureMusicProcessing)) {
             send(FeatureMusicProcessing, CEqGetSet, QByteArray(), true, QStringLiteral("eq-set"));
-            send(FeatureMusicProcessing, CEqGetUserConfig, QByteArray("\x00\x04", 2), true,
+            send(FeatureMusicProcessing, CEqGetUserConfig, userEqRangePayload(), true,
                  QStringLiteral("eq-config"));
         }
         break;
@@ -1502,9 +1509,20 @@ void MoondropDevice::refreshDetails()
         enqueue(battery);
     }
     if (hasFeature(FeatureMusicProcessing)) {
+        // Ask for the band count first: five bands on the measured EDGE, ten on
+        // the models the official catalog lists with ten.  The curve read names
+        // the band range, so it waits for the answer (and still runs when the
+        // firmware ignores the count command).
+        Request bandCount;
+        bandCount.feature = FeatureMusicProcessing;
+        bandCount.command = CEqGetBandCount;
+        bandCount.what = QStringLiteral("eq-band-count");
+        bandCount.onDone = [this] { requestUserEq(); };
+        bandCount.onTimeout = [this] { requestUserEq(); };
+        enqueue(bandCount);
+
         send(FeatureMusicProcessing, CEqGetPresets, QByteArray(), true, QStringLiteral("eq-presets"));
         send(FeatureMusicProcessing, CEqGetSet, QByteArray(), true, QStringLiteral("eq-set"));
-        send(FeatureMusicProcessing, CEqGetUserConfig, QByteArray("\x00\x04", 2), true, QStringLiteral("eq-config"));
     }
     if (hasFeature(FeatureCodecType)) {
         send(FeatureCodecType, CCodecGetLdac, QByteArray(), true, QStringLiteral("ldac"));
@@ -1686,12 +1704,19 @@ void MoondropDevice::parseBandCount(const QByteArray &payload)
     if (payload.isEmpty()) {
         return;
     }
-    Q_EMIT eqChanged();
+    // EQ/4 answers with the number of user EQ bands (EDGE: 05, the official
+    // catalog lists ten for some models).  The answer wins over the profile
+    // hint, and the next user EQ read asks for the reported range.
+    const int count = quint8(payload.at(0));
+    if (count > 0 && count <= 32) {
+        m_peqBandCount = count;
+        Q_EMIT eqChanged();
+    }
 }
 
 void MoondropDevice::rememberDeviceEq(const QVariantList &bands)
 {
-    if (bands.size() != 5) {
+    if (bands.isEmpty()) {
         return;
     }
     m_deviceEqBackup = bands;
@@ -1727,6 +1752,12 @@ void MoondropDevice::parseUserEq(const QByteArray &payload)
     if (bands.isEmpty()) {
         return;
     }
+    // the payload is the device's own truth: it settles the band count even
+    // when the firmware does not answer the EQ/4 count command
+    if (m_peqBandCount != bands.size()) {
+        m_peqBandCount = bands.size();
+        Q_EMIT eqChanged();
+    }
     QVariantList list;
     for (const EqBand &band : bands) {
         QVariantMap entry;
@@ -1738,14 +1769,17 @@ void MoondropDevice::parseUserEq(const QByteArray &payload)
     }
     // A read that is not the verification of our own write is the curve the
     // headphone itself is happy with - that is the one worth remembering.
-    if (m_eqWriteTarget.isEmpty()) {
+    // A notification driven re-read also lands here, possibly right after our
+    // write was confirmed; that echo must not overwrite the restore point.
+    if (m_eqWriteTarget.isEmpty() && !bandsMatch(list, m_lastWrittenEq)) {
         rememberDeviceEq(list);
     }
     m_bands = list;
     Q_EMIT eqChanged();
 
-    if (m_eqWriteTarget.size() == 5) {
+    if (!m_eqWriteTarget.isEmpty()) {
         if (bandsMatch(m_bands, m_eqWriteTarget)) {
+            m_lastWrittenEq = m_eqWriteTarget;
             m_eqWriteTarget.clear();
             Q_EMIT eqChanged();
             Q_EMIT commandFinished(QStringLiteral("peq-write"), true);
@@ -1756,7 +1790,7 @@ void MoondropDevice::parseUserEq(const QByteArray &payload)
             Request verify;
             verify.feature = FeatureMusicProcessing;
             verify.command = CEqGetUserConfig;
-            verify.payload = QByteArray("\x00\x04", 2);
+            verify.payload = userEqRangePayload();
             verify.what = QStringLiteral("eq-config");
             enqueue(verify);
         } else {
@@ -1893,7 +1927,7 @@ QVariantList MoondropDevice::availableProfiles() const
     automatic.insert(QStringLiteral("verified"), false);
     list.append(automatic);
     for (const DeviceProfile &profile : deviceProfiles()) {
-        if (profile.id == QLatin1String("unknown")) {
+        if (profile.id == QLatin1String("unknown") || !profile.selectable) {
             continue;
         }
         QVariantMap entry;
@@ -2083,7 +2117,28 @@ void MoondropDevice::enqueuePresetSelect(int presetId)
 
 void MoondropDevice::requestUserEq()
 {
-    send(FeatureMusicProcessing, CEqGetUserConfig, QByteArray("\x00\x04", 2), true, QStringLiteral("eq-config"));
+    send(FeatureMusicProcessing, CEqGetUserConfig, userEqRangePayload(), true, QStringLiteral("eq-config"));
+}
+
+int MoondropDevice::userEqBandCount() const
+{
+    if (m_peqBandCount > 0) {
+        return m_peqBandCount;
+    }
+    if (m_profile.eqBands > 0) {
+        return m_profile.eqBands;
+    }
+    return 5;
+}
+
+QByteArray MoondropDevice::userEqRangePayload() const
+{
+    // the read request names the first and the last band; EDGE answers "00 04"
+    // for its five bands, a ten band model expects "00 09"
+    QByteArray payload;
+    payload.append(char(0));
+    payload.append(char((userEqBandCount() - 1) & 0xFF));
+    return payload;
 }
 
 void MoondropDevice::applyUserEq(const QVariantList &bands, bool selectCustom)
@@ -2095,13 +2150,13 @@ void MoondropDevice::applyUserEq(const QVariantList &bands, bool selectCustom)
 
 void MoondropDevice::applyUserEqInternal(const QVariantList &bands, bool selectCustom, bool snapshot)
 {
-    if (bands.size() != 5) {
-        setError(moondropTr("The parametric EQ needs exactly 5 bands."));
+    if (bands.isEmpty() || bands.size() != userEqBandCount()) {
+        setError(moondropTr("The parametric EQ needs exactly %1 bands.").arg(userEqBandCount()));
         return;
     }
     prepareUserAction();
     // anything we are about to overwrite becomes the restore point
-    if (snapshot && m_bands.size() == 5 && !bandsMatch(m_bands, bands)) {
+    if (snapshot && !m_bands.isEmpty() && !bandsMatch(m_bands, bands)) {
         rememberDeviceEq(m_bands);
     }
     m_eqWriteTarget = bands;
@@ -2117,7 +2172,7 @@ void MoondropDevice::applyUserEqInternal(const QVariantList &bands, bool selectC
     Request verify;
     verify.feature = FeatureMusicProcessing;
     verify.command = CEqGetUserConfig;
-    verify.payload = QByteArray("\x00\x04", 2);
+    verify.payload = userEqRangePayload();
     verify.what = QStringLiteral("eq-config");
     enqueue(verify);
 }
@@ -2129,8 +2184,10 @@ void MoondropDevice::writeEqPayload(const QVariantList &bands)
         const QVariantMap map = item.toMap();
         EqBand band;
         band.frequency = map.value(QStringLiteral("frequency"), 1000).toInt();
-        band.q = map.value(QStringLiteral("q"), 1.0).toDouble();
-        band.gain = map.value(QStringLiteral("gain"), 0.0).toDouble();
+        // the catalog's limits for the model; defaults are what EDGE accepts
+        band.q = qBound(m_profile.qMin, map.value(QStringLiteral("q"), 1.0).toDouble(), m_profile.qMax);
+        band.gain = qBound(m_profile.gainMin, map.value(QStringLiteral("gain"), 0.0).toDouble(),
+                           m_profile.gainMax);
         band.type = map.value(QStringLiteral("type"), 0).toInt();
         list.append(band);
     }
@@ -2144,7 +2201,7 @@ void MoondropDevice::writeEqPayload(const QVariantList &bands)
     write.command = CEqSetUserConfig;
     write.payload = payload;
     write.expectReply = false;
-    write.timeoutMs = 800; // the firmware needs a moment for a 39 byte write
+    write.timeoutMs = 800; // the firmware needs a moment for the block write
     write.maxAttempts = 1;
     write.what = QStringLiteral("peq-write");
     enqueue(write);

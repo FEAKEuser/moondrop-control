@@ -151,7 +151,11 @@ SET 2 → GET 1     SET 4 → GET 2     SET 1 → GET 0
 > 程序按通用方式解析并保留原始 id 列表，界面里把未知 id 显示为“耳机”。
 > 部分机型可用 `0x03` 表示充电盒。
 
-## 8. 五段参数均衡器（PEQ）
+## 8. 参数均衡器（PEQ）
+
+> 本节按实测的 EDGE（**5 段**）写。官方 App 的产品目录里还有 10 段机型（Pudding、EVO 2、
+> Dots、MIRAGE、The Garden 等），段数与参数范围见第 12 节；报文布局不变，只是段数变化 ——
+> 读请求写 `00 (N-1)`，写报文头是 `00 (N-1) 00 00`，5 段 39 字节、10 段 74 字节。
 
 读命令 `5/5`，payload `00 04`（起始频段 / 结束频段），返回 **39 字节**：
 
@@ -187,7 +191,8 @@ offset  0..3   : 00 04 00 00     头（固定）
 （Standard / Extra Bass / Country Style / Old Studio Style / Violin Solo）。
 
 滤波器的**类型字节**含义未知（EDGE 恒为 0）；范围参考：频率 20–20000 Hz、
-Q 0.1–10、增益 −12…+3 dB（界面按此限制）。
+Q 0.1–10、增益 −12…+3 dB。这些是 EDGE 的默认值；官方目录给出更具体范围时界面按档案
+（例如 Pudding 的 Q 0.3…10）限制。
 
 ## 9. 型号差异（Robin / Pudding）
 
@@ -259,3 +264,96 @@ EDGE 固件发的是 `FF 04 00 00 00 1D ...`，即版本 4、长度大端 0）�
 * `EARBUD` 的查询能返回数据（`31 12 22 30 30 31 35 33 33 35 35` 等），但字段含义未知，
   未用于任何功能。
 * 触控自定义、OTA 需要中科蓝讯私有协议（`9ECA0000` GATT 服务），不在本项目范围内。
+
+## 12. 官方 App 的产品目录：机型适配对照
+
+这一节记录**从官方 MOONDROP App 里能拿到什么、拿不到什么**，以及由此改动的适配逻辑。
+结论先行：能拿到的是**机型事实**（属于哪个命令模块、几节电池、EQ 段数与参数范围），
+拿不到的是**各模块的命令编号**（Dart 是 AOT 编译，符号与常量不可读）。
+
+### 12.1 目标与工具
+
+* 目标：`moondrop-android-release.apk`（110,710,316 字节，
+  sha256 `04756b49acfea523758d86101c96c1824b7b209ae3a8836c07837088e795d2d5`）。
+* 结构：Flutter 应用（`lib/arm64-v8a/libapp.so` 12.6 MB）+ 原生库
+  （Airoha 的 ANC/PEQ 系数计算、USB HID、FFmpeg 等，均与 SPP 控制无关）。
+* 使用 [REA](https://rea.tools/get-started/)（`npx rea-agents@latest`，Node 24.22.1 本地安装）：
+  * `rea identify-flutter-build`：确认 Flutter 构建事实 —— Dart
+    `3.14.0-95.2.beta`，快照哈希 `7a1ea3f6f5cf1089a7f6e55d7f20dbfd`；
+  * `rea inspect-dart-aot`：**拒绝**该 APK，因为 Dart 3.14 用的是 unified snapshot
+    （`_kDartSnapshotText` / `_kDartSnapshotData`），REA 的解析器只覆盖 Dart 2.14 的
+    legacy split profile。也就是说 AOT 代码/常量无法用现成工具读出来；
+  * 字符串池与文件名仍可用（`strings libapp.so` 即可）：`package:moondrop_app/...` 的 325 个
+    Dart 文件路径、类名（`ANCPage`、`DeviceV3`、`TouchV3` …）都在，但**数值常量不在**。
+* App 运行期会拉取**公开的产品目录**：
+  `GET https://cdn-service.moondroplab.tech/api/v1/products/all`（2026-11-13 抓取，109 条）。
+  字段包括 `chipType`、`appResourceRoot.uri`、`istws`、`eqBands`、`gainRange`、`qRange`、
+  `supportedFilterTypes`、`isPreGainSupported`、`isTotalGainSupported`、`freqResponse`。
+  其中 `chipType` 与 `appResourceRoot.uri` 一致（`/bluetrum`、`/qualcomm`、`/jieli`、`/airoha`
+  以及 USB 侧的 `/comture`、`/spv`、`/synopsys`、`/jiu`、`/jieliusb`、`/bluetrumusb`），
+  说明这是 App 内部**命令模块**的划分。
+
+### 12.2 蓝牙机型的模块与机型事实
+
+只列 `type = BT`（本项目的 SPP 控制范围）；USB / 有线机型不在此列。
+
+| 模块 | 机型（目录名称，同硬件不同配色/联名会多条） | 电量 | EQ 段数 | 目录给出的参数范围 |
+| --- | --- | --- | --- | --- |
+| `bluetrum` | **MOONDROP EDGE**、**MOONDROP EDGE 2**、BIANCA:STIGMATA、SINGER HEADPHONE | 整机单值 | 5 | — |
+| `bluetrum` | **Moondrop Nekocake**（含 QBZ-191、Acht Acht Limited） | 左右耳 | 5 | — |
+| `bluetrum` | **Robin's Earphones**（4 种大小写/包装）、**Moondrop Space Travel**、SPACE TRAVEL 2 / 2 Ultra（含 PANDAER 联名） | 左右耳 | 5 | — |
+| `bluetrum` | MOONDROP Pill、PILL、PANDAER Open Air Pill、Pill Yamada Ryo / Kita Ikuyo / Ijichi Nijika / Gotoh Hitori | 左右耳 | 5 | Pill Yamada Ryo：−12…+3 dB、Q 0.2…10、含 HighShelf/LowShelf/LowPass/HighPass |
+| `bluetrum` | MOONDROP MOCA、Me 163 Komet MOCA、Golden Ages / 2、MOON TRAVEL、Ultrasonic、SUSANOO TWS（含 IOS 版）、U.C.T.S.、H.I.D.E.404_Klukai、LAPLACE-OBA-Ⅱ、ZZZ-ANGELS-OWS、MOONDROP x YASUNO KIYONO、PUNISHING:GRAY RAVEN、Space Force | 左右耳 | 5 | — |
+| `bluetrum` | **MOONDROP EVO 2** | 左右耳 | **10** | — |
+| `qualcomm` | MOONDROP Voyager、MOONDROP littlewhite | 整机单值 | 5 | — |
+| `qualcomm` | Moondrop Alice、Moondrop Sparks | 左右耳 | 5 | — |
+| `jieli` | **MOONDROP Pudding**、MOONDROP Dots、MOONDROP MIRAGE | 左右耳 | **10** | Q 0.3…10 |
+| `airoha` | MOONDROP The Garden | 左右耳 | **10** | — |
+
+关键点：
+
+* **EDGE 和猫饼在同一个 `bluetrum` 模块里**。本项目早先按「讲 GAIA = Qualcomm」把 EDGE 记成
+  Qualcomm，只是推断；目录显示官方 App 用同一套模块驱动这两台，与实测（EDGE 与猫饼都只暴露
+  GAIA 的部分 feature）一致。
+* **Pudding 属于 `jieli` 模块、10 段 EQ、Q 0.3…10**，不是 Qualcomm 家族；HyperEars 记录的
+  GAIA 兼容帧仍然成立（JieLi 也讲兼容帧），但段数与 Q 范围以目录为准。
+* **EQ 段数不固定是 5**：目录里出现 5 / 10（USB 侧还有 8 / 9 / 32）。这是本项目把
+  PEQ 报文从写死 5 段改成按段数编解码的直接依据。
+* `istws` 与实测一致：EDGE 单值、猫饼左右耳。电池语义（`00`/`0xFF` = 不可读）沿用第 9 节。
+
+### 12.3 由此改动的实现
+
+* **段数探测**：连接后先发 `EQ/4`（本项目的 `CEqGetBandCount`），用它的回包决定段数；
+  设备不回时用档案里的目录值，最后退回 5 段。段数一旦从 `EQ/5` 的实际报文里读出，
+  以报文为准（某些固件不回 `EQ/4`）。
+* **PEQ 报文**：`EQ/5` 读请求 = `00 (N-1)`；`EQ/6` 写报文 = `00 (N-1) 00 00` + 每段 7 字节，
+  5 段 39 字节、10 段 74 字节。第 8 节的字节布局不变。
+* **参数范围**：写报文按档案的 gain/Q 范围夹取；调音页的增益/Q 滑杆和导入解析也用同一组值
+  （默认 −12…+3 dB、Q 0.1…10，即 EDGE 的范围）。
+* **档案匹配**：目录里的机型只用于自动匹配（电量布局、段数、模块备注），**不出现在设置页的
+  手动档案下拉框**；下拉框保持「自动探测 + 实证机型 + 通用回退」。EDGE 2、SPACE TRAVEL 2 这类
+  与旧档案共享子串的名字排在前面，避免被旧模式吞掉。
+
+### 12.4 没有拿到的东西（重要）
+
+* **各模块的命令编号**：App 的蓝牙控制逻辑在 Dart 里（字符串池有 `GaiaService`、
+  `isSPPConnected`、`factory_spp`、`applyPEQ BulkBTPEQ` 等痕迹，数值常量不可读）。
+  因此 `qualcomm` / `jieli` / `airoha` 的 ANC、EQ、电量命令格式本项目仍然不知道，
+  这些机型继续依赖**能力探测 + 第 6 节的 AudioCuration/V2/V1 映射**，不保证可用。
+* **私有 SPP 通道号**：App 通过 JNI 调 Android `BluetoothSocket`（字符串池有 `package:jni`），
+  但通道号没有以常量形式暴露；本项目仍按第 1 节的「上次成功 → 1 → 16 → 2..30」串行探测。
+* **OTA / 触控 / 提示音**：与本项目范围无关，未分析。
+
+### 12.5 复现
+
+```bash
+# 产品目录（公开接口，不需要登录）
+curl -s https://cdn-service.moondroplab.tech/api/v1/products/all | jq -r '
+  .data[] | select(.type=="BT") |
+  [.chipType, .appResourceRoot.uri, .name, (.istws|tostring), (.eqBands|tostring),
+   (.gainRange//"-"), (.qRange//"-")] | @tsv' | column -t -s$'\t'
+
+# APK 的 Flutter 构建事实（REA）
+rea identify-flutter-build moondrop-android-release.apk
+rea inspect-dart-aot moondrop-android-release.apk   # 预期：unified snapshot 不受支持
+```

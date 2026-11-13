@@ -148,8 +148,8 @@ PlasmaComponents3.ScrollView {
         for (let i = 0; i < parsed.length; ++i) {
             list.push({
                 frequency: Math.max(20, Math.min(20000, parsed[i].frequency)),
-                gain: Math.max(-12, Math.min(3, parsed[i].gain)),
-                q: Math.max(0.1, Math.min(10, parsed[i].q)),
+                gain: Math.max(Moondrop.eqGainMin, Math.min(Moondrop.eqGainMax, parsed[i].gain)),
+                q: Math.max(Moondrop.eqQMin, Math.min(Moondrop.eqQMax, parsed[i].q)),
                 type: parsed[i].type
             })
         }
@@ -297,8 +297,8 @@ PlasmaComponents3.ScrollView {
             PlasmaComponents3.Slider {
                 id: gainSlider
                 Layout.fillWidth: true
-                from: -12
-                to: 3
+                from: Moondrop.eqGainMin
+                to: Moondrop.eqGainMax
                 stepSize: 0.1
                 value: page.currentBand ? page.currentBand.gain : 0
                 onMoved: page.updateBand(page.selectedBand, { gain: value })
@@ -316,8 +316,8 @@ PlasmaComponents3.ScrollView {
             PlasmaComponents3.Slider {
                 id: qSlider
                 Layout.fillWidth: true
-                from: 0.1
-                to: 10
+                from: Moondrop.eqQMin
+                to: Moondrop.eqQMax
                 stepSize: 0.05
                 value: page.currentBand ? page.currentBand.q : 1
                 onMoved: page.updateBand(page.selectedBand, { q: value })

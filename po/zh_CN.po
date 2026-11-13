@@ -330,8 +330,8 @@ msgstr "无法通过系统总线访问 BlueZ。"
 msgid "This headphone does not report noise cancelling support."
 msgstr "此耳机没有报告支持降噪。"
 
-msgid "The parametric EQ needs exactly 5 bands."
-msgstr "参数均衡器需要正好 5 段。"
+msgid "The parametric EQ needs exactly %1 bands."
+msgstr "参数均衡器需要正好 %1 段。"
 
 msgid "Could not encode the parametric EQ."
 msgstr "无法编码参数均衡器数据。"
@@ -484,3 +484,6 @@ msgstr "帧格式取自公开的 Robin 协议文档"
 
 msgid "Capabilities are detected from the device"
 msgstr "功能按设备上报的能力自动探测"
+
+msgid "Official app catalog: %1 module, %2 EQ bands; commands are not measured on hardware yet."
+msgstr "官方 App 产品目录：%1 模块、%2 段均衡器；命令族尚未在真机验证。"

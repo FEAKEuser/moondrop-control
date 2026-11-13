@@ -45,7 +45,7 @@ enum AncMode {
     AncLive = 5,
 };
 
-// One 5 band parametric EQ band (MOONDROP "user set configuration").
+// One parametric EQ band (MOONDROP "user set configuration").
 struct EqBand
 {
     int frequency = 1000; // Hz
@@ -54,8 +54,10 @@ struct EqBand
     int type = 0; // 0 = peaking
 };
 
-// Decode / encode the 39 byte user EQ payload of EDGE style firmware.
-QList<EqBand> decodeUserEq(const QByteArray &payload);
+// Decode / encode the user EQ payload: a 4 byte band range header plus 7 bytes
+// per band (39 bytes for the five band EDGE firmware, 74 for a ten band model).
+// bandCount <= 0 derives the count from the payload length.
+QList<EqBand> decodeUserEq(const QByteArray &payload, int bandCount = 0);
 QByteArray encodeUserEq(const QList<EqBand> &bands);
 
 class MoondropDevice : public QObject
@@ -95,6 +97,12 @@ class MoondropDevice : public QObject
     Q_PROPERTY(bool gainDescending READ gainDescending NOTIFY profileChanged)
     // number of PEQ bands the device supports (0 = no parametric EQ)
     Q_PROPERTY(int peqBandCount READ peqBandCount NOTIFY eqChanged)
+    // gain / Q limits the official catalog lists for this model (defaults are
+    // what the measured EDGE accepts); the EQ editor clamps to these
+    Q_PROPERTY(double eqGainMin READ eqGainMin NOTIFY profileChanged)
+    Q_PROPERTY(double eqGainMax READ eqGainMax NOTIFY profileChanged)
+    Q_PROPERTY(double eqQMin READ eqQMin NOTIFY profileChanged)
+    Q_PROPERTY(double eqQMax READ eqQMax NOTIFY profileChanged)
     Q_PROPERTY(QString firmwareVersion READ firmwareVersion NOTIFY infoChanged)
     Q_PROPERTY(QString serialNumber READ serialNumber NOTIFY infoChanged)
     Q_PROPERTY(QString gaiaVersion READ gaiaVersion NOTIFY infoChanged)
@@ -176,6 +184,10 @@ public:
     bool gainOrderKnown() const { return m_profile.gainOrder != GainOrder::Unknown; }
     bool gainDescending() const { return m_profile.gainOrder == GainOrder::Descending; }
     int peqBandCount() const { return m_peqBandCount; }
+    double eqGainMin() const { return m_profile.gainMin; }
+    double eqGainMax() const { return m_profile.gainMax; }
+    double eqQMin() const { return m_profile.qMin; }
+    double eqQMax() const { return m_profile.qMax; }
     QString firmwareVersion() const { return m_firmware; }
     QString serialNumber() const { return m_serial; }
     QString gaiaVersion() const { return m_gaiaVersion; }
@@ -412,7 +424,16 @@ private:
     QVariantList m_bands;
     QVariantList m_eqWriteTarget;
     int m_eqWriteAttempts = 0;
+    // the last curve this widget successfully wrote: a read that returns it is
+    // our own echo (including notification driven re-reads), not a change made
+    // on the headphone, so it must not replace the restore point
+    QVariantList m_lastWrittenEq;
     void writeEqPayload(const QVariantList &bands);
+    // band count to ask the device for: its own EQ/4 answer, else the value the
+    // official catalog lists, else the five bands the measured EDGE has
+    int userEqBandCount() const;
+    // payload of the user EQ read: first and last band, as the firmware sends it
+    QByteArray userEqRangePayload() const;
     // snapshot == false for a restore: the restore point must survive it
     void applyUserEqInternal(const QVariantList &bands, bool selectCustom, bool snapshot);
     static bool bandsMatch(const QVariantList &a, const QVariantList &b);

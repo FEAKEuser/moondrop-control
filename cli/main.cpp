@@ -96,8 +96,8 @@ int usage()
         << "  info                              everything the headphone reports\n"
         << "  anc [off|on|transparency|wind]    get or set noise cancelling\n"
         << "  preset list | preset ID           list / select an EQ preset (0x3f = PEQ)\n"
-        << "  peq get | peq flat | peq restore   show / flatten / restore the 5 band PEQ\n"
-        << "  peq set \"f:g:q;f:g:q;f:g:q;f:g:q;f:g:q\"\n"
+        << "  peq get | peq flat | peq restore   show / flatten / restore the user PEQ\n"
+        << "  peq set \"f:g:q;f:g:q;...\"          write bands (as many as the model has)\n"
         << "  battery                           battery levels\n"
         << "  ldac [on|off]\n"
         << "  gain [0|1|2]                      DAC gain\n"
@@ -274,21 +274,39 @@ int main(int argc, char **argv)
             } else if (sub == QLatin1String("restore")) {
                 device.restoreDeviceEq();
             } else if (sub == QLatin1String("flat")) {
+                // keep the frequencies the device reports: a ten band model has
+                // ten of them.  Without a curve yet, use the measured EDGE layout.
                 QVariantList bands;
-                const QList<int> freqs{23, 240, 1400, 2300, 6900};
-                for (int freq : freqs) {
-                    QVariantMap band;
-                    band.insert(QStringLiteral("frequency"), freq);
-                    band.insert(QStringLiteral("gain"), 0.0);
-                    band.insert(QStringLiteral("q"), 1.0);
-                    band.insert(QStringLiteral("type"), 0);
-                    bands.append(band);
+                const QVariantList current = device.bands();
+                if (!current.isEmpty()) {
+                    for (const QVariant &item : current) {
+                        QVariantMap band = item.toMap();
+                        band.insert(QStringLiteral("gain"), 0.0);
+                        band.insert(QStringLiteral("q"), 1.0);
+                        bands.append(band);
+                    }
+                } else {
+                    const QList<int> freqs{23, 240, 1400, 2300, 6900};
+                    for (int freq : freqs) {
+                        QVariantMap band;
+                        band.insert(QStringLiteral("frequency"), freq);
+                        band.insert(QStringLiteral("gain"), 0.0);
+                        band.insert(QStringLiteral("q"), 1.0);
+                        band.insert(QStringLiteral("type"), 0);
+                        bands.append(band);
+                    }
                 }
                 device.applyUserEq(bands, true);
             } else if (sub == QLatin1String("set") && args.size() >= 2) {
                 const QStringList parts = args.at(1).split(QLatin1Char(';'), Qt::SkipEmptyParts);
-                if (parts.size() != 5) {
-                    out << "need exactly 5 bands\n";
+                if (parts.isEmpty() || parts.size() > 32) {
+                    out << "need between 1 and 32 bands\n";
+                    out.flush();
+                    app.exit(2);
+                    return;
+                }
+                if (!device.bands().isEmpty() && device.bands().size() != parts.size()) {
+                    out << QStringLiteral("this headphone has %1 bands\n").arg(device.bands().size());
                     out.flush();
                     app.exit(2);
                     return;

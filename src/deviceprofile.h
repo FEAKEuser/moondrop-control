@@ -7,11 +7,15 @@
 // numbered.  A profile captures exactly those differences so the rest of the code
 // can stay model agnostic.
 //
-// Sources: own measurement on MOONDROP EDGE (firmware 1.4.0), and the published
+// Sources: own measurement on MOONDROP EDGE (firmware 1.4.0); the published
 // interoperable protocol facts for Robin and Pudding
 // (https://github.com/silverpoetry/HyperEars, docs/moondrop-robin-protocol.md and
-// docs/moondrop-pudding-protocol.md).  Only the EDGE profile is verified on
-// hardware by this project; the others follow the documented frames.
+// docs/moondrop-pudding-protocol.md); and the product catalog the official
+// MOONDROP app fetches at runtime (analysis and the full cross-check table are
+// in docs/PROTOCOL.md, "official app catalog").  Only the EDGE and NEKOCAKE
+// profiles are verified on hardware by this project; catalog rows only tell us
+// which module the app uses, how many batteries a model has and how many EQ
+// bands it exposes.
 #pragma once
 
 #include <QList>
@@ -35,6 +39,18 @@ enum class GainOrder {
     Descending, // 0 = high, 1 = medium, 2 = low (MOONDROP firmware)
 };
 
+// Which module of the official MOONDROP app drives this model.  The app's
+// product catalog files every Bluetooth product under exactly one of these, so
+// the module is a fact about the model (not a guess); what the module's
+// commands look like is only measured for EDGE so far.
+enum class DeviceFamily {
+    Unknown,
+    Bluetrum, // BT8922E and relatives; GAIA compatible SPP (measured on EDGE)
+    Qualcomm, // QCC parts, GAIA
+    JieLi, // JieLi parts, SPP
+    Airoha, // Airoha parts, SPP
+};
+
 struct DeviceProfile
 {
     QString id; // stable identifier, e.g. "edge"
@@ -52,10 +68,26 @@ struct DeviceProfile
     BatteryKind battery = BatteryKind::Unknown;
     QList<int> batteryIds; // ids to request, used when the device does not list them
     int ancPath = -1; // preferred command family, -1 = detect from the feature list
-    bool parametricEq = false; // exposes the 5 band user EQ
+    bool parametricEq = false; // exposes the user EQ measured on EDGE
     GainOrder gainOrder = GainOrder::Unknown;
     bool verified = false; // measured on real hardware by this project
     QString notes;
+
+    // ---- data from the official app's product catalog ---------------------
+    // The app groups every product under one command module; this is that
+    // module.  Only EDGE's command family was measured by this project.
+    DeviceFamily family = DeviceFamily::Unknown;
+    // user EQ band count the catalog lists for the model (0 = catalog silent).
+    // The device's own answer (EQ/4) wins whenever it answers.
+    int eqBands = 0;
+    // gain / Q limits the catalog lists.  Defaults are what EDGE accepts.
+    double gainMin = -12.0;
+    double gainMax = 3.0;
+    double qMin = 0.1;
+    double qMax = 10.0;
+    // Catalog-derived profiles are used for automatic matching only; the
+    // settings page keeps offering just the measured and documented ones.
+    bool selectable = true;
 };
 
 // All known profiles, most specific first; the last entry is the generic fallback.

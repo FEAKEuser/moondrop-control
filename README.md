@@ -1,21 +1,25 @@
 # Moondrop Control — KDE Plasma 小部件
 
-控制水月雨（MOONDROP）蓝牙耳机的 KDE Plasma 6 小部件：降噪模式、调音预设、五段参数均衡器（PEQ）、
+控制水月雨（MOONDROP）蓝牙耳机的 KDE Plasma 6 小部件：降噪模式、调音预设、参数均衡器（PEQ）、
 编解码器开关、电量等。使用 Qt 6 / QML 开发，直接通过 Linux 蓝牙 RFCOMM（SPP）与耳机通信。
 
 ## 0. 实测范围（重要）
 
 本项目**只在两台真机上实际测试过**：
 
-| 机型 | 固件 | 主控 | 实测内容 |
+| 机型 | 固件 | 官方 App 模块 | 实测内容 |
 | --- | --- | --- | --- |
-| **MOONDROP EDGE**（羽翼） | 1.4.0 | Qualcomm（GAIA） | 全部功能：降噪、五段 PEQ、LDAC/LC3、DAC 增益、多点、电量 |
-| **Moondrop Nekocake**（猫饼） | 1.0.0 | 中科蓝讯 BT8922E | 连接、能力探测、调音预设、电量（经 BlueZ）；该机型**无** GAIA 降噪/电量通道 |
+| **MOONDROP EDGE**（羽翼） | 1.4.0 | `bluetrum`（与猫饼同族） | 全部功能：降噪、五段 PEQ、LDAC/LC3、DAC 增益、多点、电量 |
+| **Moondrop Nekocake**（猫饼） | 1.0.0 | `bluetrum`（中科蓝讯 BT8922E） | 连接、能力探测、调音预设、电量（经 BlueZ）；该机型**无** GAIA 降噪/电量通道 |
 
-**其余机型（Pudding / Robin / Space Travel）从未在本项目里接过真机**，它们的档案仅根据
-上游公开资料填写，粒度只到「公开资料记载的帧格式」，**不保证能工作**。
-下面表格的「来源」一列会逐行注明是实测还是资料，界面上也不会把未实测的档案标为已实测；
-协议看起来一致不等于已在真机验证过。
+> EDGE 的「主控」一列早先写的是 Qualcomm（GAIA），依据只是它讲 GAIA 帧。官方 App 的产品目录
+> 把 EDGE 和猫饼都归在同一个 `bluetrum` 模块里（见 [`docs/PROTOCOL.md`](docs/PROTOCOL.md) 第 12 节），
+> 所以这里改成按官方模块记录；硅片型号本项目没有拆机确认。
+
+**其余机型从未在本项目里接过真机**。它们的档案由两部分组成：上游公开资料（Pudding / Robin /
+Space Travel 的帧格式），以及官方 App 产品目录里的机型事实（模块、电量布局、EQ 段数与参数范围）。
+后者只能说明「官方 App 这样对待这台机器」，**不代表本项目已经能控制它**；
+下面表格的「来源」一列逐行注明，界面上也不会把未实测的档案标为已实测。
 
 ---
 
@@ -26,14 +30,24 @@
 | 档案 | 匹配名称 | 电量 | 降噪 | 参数均衡器 | 来源 |
 | --- | --- | --- | --- | --- | --- |
 | EDGE | `MOONDROP EDGE` / 羽翼 | 整机单值 | AudioCuration | ✅ 5 段 | **本项目真机实测**（固件 1.4.0） |
-| Pudding | `MOONDROP Pudding` / 布丁 | 左右耳 + 充电盒 | ANC V2 | — | 上游 HyperEars 称其已实机验证；**本项目未实测** |
+| Pudding | `MOONDROP Pudding` / 布丁 | 左右耳 + 充电盒 | ANC V2 | — | 上游 HyperEars 称其已实机验证；**本项目未实测**（官方目录：`jieli` 模块，10 段） |
 | Robin | `Robin's Earphones` / 知更鸟 | 左右耳 | AudioCuration | — | HyperEars 公开协议；**本项目未实测** |
 | Space Travel | `MOONDROP Space Travel` | 左右耳 | 自动探测 | — | 社区逆向资料；**本项目未实测** |
-| NEKOCAKE 猫饼 | `Moondrop Nekocake` | BlueZ（无 GAIA 电量） | **不支持**（长按耳机切换） | — | **本项目真机实测**（固件 1.0.0） |
+| NEKOCAKE 猫饼 | `Moondrop Nekocake`（含 QBZ-191 / Acht Acht 限定版） | BlueZ（无 GAIA 电量） | **不支持**（长按耳机切换） | — | **本项目真机实测**（固件 1.0.0） |
+| EDGE 2 | `MOONDROP EDGE 2` | 整机单值 | 先试 AudioCuration | — | 官方 App 产品目录；**未实测** |
+| Space Travel 2 / 2 Ultra | `SPACE TRAVEL 2` / `... ULTRA` | 左右耳 | 先试 AudioCuration | — | 官方 App 产品目录；**未实测** |
+| EVO 2 | `MOONDROP EVO 2` | 左右耳 | 先试 AudioCuration | —（目录称 10 段） | 官方 App 产品目录；**未实测** |
+| Pill / MOCA / Golden Ages / MOON TRAVEL / Ultrasonic / SUSANOO | 对应全名 | 左右耳 | 先试 AudioCuration | — | 官方 App 产品目录；**未实测** |
+| Voyager / littlewhite / Alice / Sparks | 对应全名 | 整机单值或左右耳 | 自动探测 | — | 官方 App 产品目录（`qualcomm` 模块）；**未实测** |
+| Dots / MIRAGE | 对应全名 | 左右耳 | 自动探测 | —（目录称 10 段） | 官方 App 产品目录（`jieli` 模块）；**未实测** |
+| The Garden | `MOONDROP The Garden` | 左右耳 | 自动探测 | —（目录称 10 段） | 官方 App 产品目录（`airoha` 模块）；**未实测** |
 | 通用回退 | 任何含 `MOONDROP` / `水月雨` 的名称 | 自动探测 | 自动探测 | 按能力位图 | — |
 
-* **只有 EDGE 与 Nekocake 两行是本项目实测结果**，其余档案都是按公开资料写的，未经真机验证；
-  未实测的档案只声明「公开资料记载的帧格式」，界面上也不会标记为已实测。
+* **只有 EDGE 与 Nekocake 两行是本项目实测结果**；HyperEars/Robin/Space Travel 行按公开资料写；
+  其余行来自官方 App 产品目录（模块、电量布局、EQ 段数与参数范围），**命令族没有在本项目验证过**，
+  界面不会把它们标成已实测。
+* 产品目录里的机型只用于**自动匹配**，不出现在设置页的手动档案下拉框里——下拉框保持
+  「自动探测 + 实证机型 + 通用回退」的短列表。
 * 猫饼（中科蓝讯 BT8922E）只实现了 GAIA 的 BASIC/EARBUD/VOICE_UI/UPGRADE/调音族：
   电量读 BlueZ，**降噪只能长按耳机切换**，详见 [`docs/PROTOCOL.md`](docs/PROTOCOL.md) 第 11 节。
 * 型号名上报较晚（先连上、后查询），档案切换是即时的；设置页可手动指定档案以覆盖自动识别。
@@ -344,7 +358,13 @@ packaging/                   Fedora spec、Arch PKGBUILD、Debian、AppStream
   [ui]
   presetNames=Balanced, Basshead, ...
   ```
+* PEQ 不再写死五段：段数先问设备（`EQ/4`），设备不回时用官方目录的段数，最后才退回 5 段。
+  读写的报文头是「首段..末段」，每段仍 7 字节，因此 5 段 39 字节、10 段 74 字节。
+  增益/Q 的滑杆范围取自档案（官方目录里给出的值，默认 −12…+3 dB、Q 0.1…10）。
 * PEQ 频段滤波器类型字节（每条 6 字节处）EDGE 固件恒为 0，界面暂不暴露类型选择。
+* 官方 App 产品目录只提供机型事实（模块、电量布局、EQ 段数与范围）；`qualcomm` / `jieli` /
+  `airoha` 模块的命令编号本项目**没有**从 App 里解出来（Dart 是 AOT 编译，没有可读的符号表），
+  这些机型仍靠能力探测，不保证可用。
 * 只实现了只读的“设备信息 / 电量 / 能力”，未实现固件升级（OTA）与触控手势配置。
 * 猫饼的降噪**无法由软件控制**（固件没有对应的 GAIA 命令，只能长按耳机切换），
   且电量必须经 BlueZ 读取；这是设备限制，不是缺陷。
@@ -421,6 +441,11 @@ python3 tools/gaia.py listen 10                  # 只监听通知
   是「多机型适配」这一层的主要依据。
 
 同样重要的其它资料：
+
+* **官方 MOONDROP App 的产品目录**（`https://cdn-service.moondroplab.tech/api/v1/products/all`，
+  2026-11-13 抓取，109 条）：机型属于哪个命令模块、是否 TWS、EQ 段数与增益/Q 范围。
+  逆向过程与对照表见 [`docs/PROTOCOL.md`](docs/PROTOCOL.md) 第 12 节；本项目只用其中的
+  机型事实，没有复制 App 的代码或帧常量。
 
 * [bqj6666/FxxkMoondrop](https://github.com/bqj6666/FxxkMoondrop)（GPL-3.0）
   —— 从官方 App 提取的完整 Feature/Command 表与 ANC 路径选择逻辑

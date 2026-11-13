@@ -31,6 +31,10 @@ int main(int argc, char **argv)
     expect("MOONDROP NEKOCAKE", "nekocake");
     expect("MOONDROP Pudding", "pudding");
     expect("Robin's Earphones", "robin");
+    // catalog-derived rows must win over the older substring patterns
+    expect("MOONDROP EDGE 2", "edge-2");
+    expect("SPACE TRAVEL 2", "space-travel-2");
+    expect("MOONDROP SPACE TRAVEL 2 ULTRA", "space-travel-2-ultra");
 
     // a name that merely contains a profile name must not match it
     expect("Samsung EDGE 5G", "unknown");
