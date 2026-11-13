@@ -44,7 +44,7 @@ Requires:       plasma-workspace
 %description
 A KDE Plasma 6 widget (and a command line tool) that controls MOONDROP
 Bluetooth headphones over the RFCOMM control channel: noise cancelling modes,
-tuning presets, the five band parametric EQ, LDAC/LC3/LHDC switches, DAC gain,
+tuning presets, a multi-band parametric EQ, LDAC/LC3/LHDC switches, DAC gain,
 multipoint and battery levels.
 
 The applet talks to the headphone directly through an AF_BLUETOOTH socket as

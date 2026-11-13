@@ -21,7 +21,7 @@ Depends: ${shlibs:Depends}, ${misc:Depends},
          qml6-module-qtquick-layouts,
          plasma-workspace
 Description: KDE Plasma applet to control MOONDROP Bluetooth headphones
- Noise cancelling modes, tuning presets, a five band parametric EQ, the
+ Noise cancelling modes, tuning presets, a multi-band parametric EQ, the
  LDAC/LC3/LHDC switches, DAC gain, multipoint and battery levels, all read
  and written over the headphone's RFCOMM control channel.
  .
