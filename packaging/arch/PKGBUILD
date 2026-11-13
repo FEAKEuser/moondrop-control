@@ -4,7 +4,7 @@
 # Submit to the AUR as moondrop-control (and moondrop-control-git for the
 # VCS variant below).
 pkgname=moondrop-control
-pkgver=0.3.0
+pkgver=0.3.1
 pkgrel=1
 pkgdesc="KDE Plasma applet to control MOONDROP Bluetooth headphones"
 arch=('x86_64' 'aarch64')

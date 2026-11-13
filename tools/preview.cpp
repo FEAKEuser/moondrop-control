@@ -168,14 +168,19 @@ int main(int argc, char **argv)
         } else if (fake.compare(QLatin1String("rich"), Qt::CaseInsensitive) == 0) {
             model = Moondrop::FakeHeadset::Rich;
         }
+        // MOONDROP_PREVIEW_FAKE can also start in a given ANC mode, which is
+        // what makes the state-dependent tab icon (and page) renderable.
+        const int startAncMode = qEnvironmentVariableIntValue("MOONDROP_PREVIEW_ANC");
         // the plugin registers org.moondrop.backend itself, so use a private uri
         // and point the pages at it via MOONDROP_BACKEND_URI
         const char *uri = "org.moondrop.preview";
         qmlRegisterType<Moondrop::DeviceDiscovery>(uri, 1, 0, "DeviceDiscovery");
         qmlRegisterSingletonType<Moondrop::MoondropDevice>(
             uri, 1, 0, "Moondrop",
-            [model](QQmlEngine *, QJSEngine *) -> QObject * {
-                return new Moondrop::MoondropDevice(nullptr, new Moondrop::FakeHeadset(model));
+            [model, startAncMode](QQmlEngine *, QJSEngine *) -> QObject * {
+                auto *headset = new Moondrop::FakeHeadset(model);
+                headset->setAncMode(qBound(0, startAncMode, 5));
+                return new Moondrop::MoondropDevice(nullptr, headset);
             });
     }
 
