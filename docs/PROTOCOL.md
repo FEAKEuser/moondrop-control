@@ -341,6 +341,11 @@ EDGE 固件发的是 `FF 04 00 00 00 1D ...`，即版本 4、长度大端 0）�
 * **档案匹配**：目录里的机型只用于自动匹配（电量布局、段数、模块备注），**不出现在设置页的
   手动档案下拉框**；下拉框保持「自动探测 + 实证机型 + 通用回退」。EDGE 2、SPACE TRAVEL 2 这类
   与旧档案共享子串的名字排在前面，避免被旧模式吞掉。
+* **目录覆盖不完整**：目录里另有九款蓝牙机型没有档案，因为它们在耳机上报告的 variant 字符串
+  没有实测（`Me 163 Komet MOCA`、`Space Force`、`U.C.T.S.`、`H.I.D.E.404_Klukai`、
+  `LAPLACE-OBA-Ⅱ`、`ZZZ-ANGELS-OWS`、`PUNISHING:GRAY RAVEN`、`BIANCA:STIGMATA`、
+  `SINGER HEADPHONE`）。名称里带 `MOONDROP`/`水月雨` 的仍走通用档案，其余按未知设备处理；
+  这里不按目录商品名猜 variant。
 
 ### 12.4 没有拿到的东西（重要）
 
@@ -545,7 +550,10 @@ EDGE 实测接受 4 字节头、记录从 4 开始的写法（39 字节）并原
 * **写配置**（命令 5）：payload `[gestureId | (more<<7)][offset][uint16 配置…]`；
   每条配置 `action`（bit0..6）| `context`（bit7..13）| `touchpad`（bit14..15）。
   App 按最大 payload 分块，本项目按 16 条一包。
-* **恢复默认**（命令 6），随后重新读一遍配置。
+* **恢复默认**（命令 6），随后重新读一遍配置（固件不一定回应 reset，读不依赖它的回应）。
+* App 的手势/场景/动作名称存在于 Dart snapshot（可检索到 `Double Tap`、`Long Press 1S/3S`、
+  `Refuse incoming call`），但**数字 id 到名称的映射没有恢复**，所以本项目界面只显示编号
+  （`Gesture N` / `Context N` / `Touchpad N` / `Action N`），不显示猜出来的语义名。
 
 
 **ANC 开关配置（8/41、32/41）**：5 字节

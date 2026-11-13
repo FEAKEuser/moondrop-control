@@ -217,7 +217,8 @@ QList<DeviceProfile> buildProfiles()
     auto addCatalog = [&profiles](const char *id, const char *name,
                                   const QStringList &patterns, const QStringList &exacts,
                                   DeviceFamily family, bool buds, BatteryKind battery,
-                                  const QList<int> &ids, int eqBands, int ancPath) {
+                                  const QList<int> &ids, int eqBands, int ancPath,
+                                  double qMin = 0.1, double qMax = 10.0) {
         DeviceProfile profile;
         profile.id = QString::fromLatin1(id);
         profile.name = QString::fromUtf8(name);
@@ -229,6 +230,8 @@ QList<DeviceProfile> buildProfiles()
         profile.ancPath = ancPath;
         profile.family = family;
         profile.eqBands = eqBands;
+        profile.qMin = qMin;
+        profile.qMax = qMax;
         profile.selectable = false;
         profile.notes = QStringLiteral("Catalog data only; no hardware measurement yet");
         profiles.append(profile);
@@ -242,11 +245,14 @@ QList<DeviceProfile> buildProfiles()
     addCatalog("evo-2", "MOONDROP EVO 2",
                {QStringLiteral("MOONDROP EVO 2")}, {QStringLiteral("EVO 2")},
                DeviceFamily::Bluetrum, true, BatteryKind::Buds, budsOnly, 10, 8);
+    // "Pill Yamada Ryo" is the only catalog row with an explicit range
+    // (0.2..10); the rest of the Pill family inherits it.
     addCatalog("pill", "MOONDROP Pill",
                {QStringLiteral("MOONDROP PILL"), QStringLiteral("PILL "),
                 QStringLiteral("OPEN AIR PILL")},
                {QStringLiteral("PILL")},
-               DeviceFamily::Bluetrum, true, BatteryKind::Buds, budsOnly, 5, 8);
+               DeviceFamily::Bluetrum, true, BatteryKind::Buds, budsOnly, 5, 8,
+               0.2, 10.0);
     addCatalog("moca", "MOONDROP MOCA",
                {QStringLiteral("MOONDROP MOCA")}, {QStringLiteral("MOCA")},
                DeviceFamily::Bluetrum, true, BatteryKind::Buds, budsOnly, 5, 8);
@@ -269,8 +275,10 @@ QList<DeviceProfile> buildProfiles()
                DeviceFamily::Airoha, true, BatteryKind::Buds, budsOnly, 10, -1);
 
     // qualcomm module: one model reports a single value, two report two
+    // "VOYAGER" is also a common product-line word (Poly/Jabra); only match
+    // it as the whole reported name, never as a substring.
     addCatalog("voyager", "MOONDROP Voyager",
-               {QStringLiteral("VOYAGER")}, {},
+               {QStringLiteral("MOONDROP VOYAGER")}, {QStringLiteral("VOYAGER")},
                DeviceFamily::Qualcomm, false, BatteryKind::Single, singleValue, 5, -1);
     addCatalog("littlewhite", "MOONDROP littlewhite",
                {QStringLiteral("LITTLEWHITE")}, {},
@@ -285,10 +293,12 @@ QList<DeviceProfile> buildProfiles()
     // jieli module: ten band EQ with Q 0.3..10 (the app's own limit)
     addCatalog("dots", "MOONDROP Dots",
                {QStringLiteral("MOONDROP DOTS")}, {},
-               DeviceFamily::JieLi, true, BatteryKind::Buds, budsOnly, 10, -1);
+               DeviceFamily::JieLi, true, BatteryKind::Buds, budsOnly, 10, -1,
+               0.3, 10.0);
     addCatalog("mirage", "MOONDROP MIRAGE",
                {QStringLiteral("MOONDROP MIRAGE")}, {QStringLiteral("MIRAGE")},
-               DeviceFamily::JieLi, true, BatteryKind::Buds, budsOnly, 10, -1);
+               DeviceFamily::JieLi, true, BatteryKind::Buds, budsOnly, 10, -1,
+               0.3, 10.0);
 
     // ---- generic ----------------------------------------------------------
     {

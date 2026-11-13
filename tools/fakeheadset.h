@@ -113,6 +113,8 @@ public:
     // Pretend a different headphone is now connected (used by the switch check:
     // one widget, the user swaps headphones).
     void setModel(Model model) { m_model = model; }
+    // Simulates a firmware that answers a read with a GAIA error frame.
+    void setRejectLedReads(bool reject) { m_rejectLedReads = reject; }
 
     // Model "somebody else holds the single control connection": every connect
     // attempt fails with EBUSY, like a real headphone whose slot is taken.
@@ -512,7 +514,12 @@ private:
             switch (feature) {
             case FeatureLed:
                 if (command == 1) {
-                    reply(feature, 1, QByteArray(1, char(m_led ? 1 : 0)));
+                    if (m_rejectLedReads) {
+                        // a GAIA error carries a status byte, not the value
+                        deliver(encodeFrame(feature, 1, QByteArray(1, '\x02'), TypeError));
+                    } else {
+                        reply(feature, 1, QByteArray(1, char(m_led ? 1 : 0)));
+                    }
                 } else if (command == 2 && !sent.payload.isEmpty()) {
                     m_led = quint8(sent.payload.at(0)) != 0;
                 }
@@ -605,6 +612,7 @@ private:
     }
 
     Model m_model;
+    bool m_rejectLedReads = false;
     bool m_busy = false;
     bool m_connected = false;
     // connected to a channel that is not the GAIA one: accepts and stays silent

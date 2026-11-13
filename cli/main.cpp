@@ -374,6 +374,28 @@ int main(int argc, char **argv)
                                .arg(entry.value(QStringLiteral("label")).toString());
                 }
                 out.flush();
+            } else if (args.size() == 1) {
+                const QString id = args.first();
+                bool found = false;
+                for (const QVariant &item : device.extraSettings()) {
+                    const QVariantMap entry = item.toMap();
+                    if (entry.value(QStringLiteral("id")).toString() != id) {
+                        continue;
+                    }
+                    out << QStringLiteral("%1 = %2   (%3)\n")
+                               .arg(id, -22)
+                               .arg(entry.value(QStringLiteral("value")).toString(), -6)
+                               .arg(entry.value(QStringLiteral("label")).toString());
+                    found = true;
+                    break;
+                }
+                if (!found) {
+                    out << "unknown extra setting: " << id << "\n";
+                    out.flush();
+                    app.exit(2);
+                    return;
+                }
+                out.flush();
             } else if (args.size() >= 2) {
                 const QString id = args.at(0);
                 QVariant value = args.at(1);
@@ -428,6 +450,13 @@ int main(int argc, char **argv)
                 out.flush();
             } else if (sub == QLatin1String("next")) {
                 device.requestNextMultipointDevice();
+            } else if (sub == QLatin1String("timeout") && args.size() == 1) {
+                if (device.multipointTimeout() >= 0) {
+                    out << "timeout: " << device.multipointTimeout() << " min\n";
+                } else {
+                    out << "multipoint timeout: unknown\n";
+                }
+                out.flush();
             } else if (sub == QLatin1String("timeout") && args.size() >= 2) {
                 device.setExtra(QStringLiteral("multipointTimeout"), args.at(1).toInt());
             } else if (sub == QLatin1String("disconnect") && args.size() >= 2) {

@@ -216,6 +216,20 @@ void testProfiles()
     check(idOf(QStringLiteral("Pill Yamada Ryo")) == QLatin1String("pill"),
           QStringLiteral("profile: Pill collab SKU"));
 
+    // catalog ranges: jieli rows say Q 0.3..10, the Pill SKU says 0.2..10
+    const DeviceProfile mirageRange = matchProfile(QStringLiteral("MOONDROP MIRAGE"));
+    check(mirageRange.qMin == 0.3 && mirageRange.qMax == 10.0,
+          QStringLiteral("profile: MIRAGE carries the catalog Q range"));
+    const DeviceProfile pillRange = matchProfile(QStringLiteral("Pill Yamada Ryo"));
+    check(qAbs(pillRange.qMin - 0.2) < 1e-9 && pillRange.qMax == 10.0,
+          QStringLiteral("profile: Pill carries the catalog Q range"));
+
+    // "Voyager" is a common product line; only the whole reported name may match
+    check(idOf(QStringLiteral("VOYAGER")) == QLatin1String("voyager"),
+          QStringLiteral("profile: bare Voyager still matches"));
+    check(idOf(QStringLiteral("Poly Voyager Focus 2")) == QLatin1String("unknown"),
+          QStringLiteral("profile: Poly Voyager is not a MOONDROP Voyager"));
+
     // the official catalog says which module and how many bands a model has
     const DeviceProfile edge2 = matchProfile(QStringLiteral("MOONDROP EDGE 2"));
     check(edge2.family == DeviceFamily::Bluetrum && edge2.eqBands == 5 && !edge2.isBuds,

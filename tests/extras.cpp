@@ -244,6 +244,23 @@ int main(int argc, char **argv)
         }
     }
 
+    // --- error frames must not be stored as values -------------------------
+    {
+        FakeHeadset *rejecting = new FakeHeadset(FakeHeadset::Rich);
+        rejecting->setRejectLedReads(true);
+        MoondropDevice rejected(nullptr, rejecting);
+        rejected.disableStartupAutoConnect();
+        rejected.setAddress(QStringLiteral("00:11:22:33:44:55"));
+        rejected.setChannel(1);
+        rejected.connectDevice();
+        check(waitFor([&] { return rejected.connected(); }),
+              QStringLiteral("connects to the rejecting fake"));
+        check(waitFor([&] { return rejected.ready() && !rejected.busy(); }, 8000),
+              QStringLiteral("refresh completes even when a read is rejected"));
+        check(extraValue(rejected, QStringLiteral("led")).toBool() == false,
+              QStringLiteral("an error status is not stored as the LED value"));
+    }
+
     std::printf(failures == 0 ? "\nall checks passed\n" : "\n%d check(s) failed\n", failures);
     return failures == 0 ? 0 : 1;
 }

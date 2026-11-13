@@ -48,7 +48,7 @@ Space Travel 的帧格式），以及官方 App 产品目录里的机型事实�
 | 主机地址（`21/1`） | EDGE ✓（刷新末尾重读后稳定） |
 | 降噪增益 `8/5–6`、风噪 `8/22–24`、自动通透 `8/25–29` | **没有测试**：EDGE 的 AudioCuration 只有 v1，这些命令全部无响应 |
 | LED、空间音频/头动、佩戴检测、动态低音、声道互换、关机/待机超时 | **没有测试**（EDGE 无对应 feature） |
-| 按键手势（feature 11） | **没有测试**（EDGE 无 feature 11；Rich 假耳机不算） |
+| 按键手势（feature 11） | **没有测试**（EDGE 无 feature 11；Rich 假耳机不算）。界面显示 `Gesture/Context/Touchpad/Action` 的**编号**：App 的名称→id 映射没有恢复，不显示猜出来的语义名 |
 | Pudding / Robin / Space Travel / EVO 2 / The Garden 等目录机型 | **没有测试**：从未在本项目接上真机，命令族按 App 表或上游资料编写 |
 
 ### 0.2 官方 App 有、本项目**没有实现**的功能
@@ -437,6 +437,7 @@ packaging/                   Fedora spec、Arch PKGBUILD、Debian、AppStream
   `docs/PROTOCOL.md` 第 13.5 节，真机写这些值没有验证。
 * 额外设置与按键手势按 App 的命令表实现；**除 EDGE 的 ANC 开关配置读写外均未真机验证**。
   设备不回的项探测一次（600 ms）后在该连接内隐藏。
+* EQ 备份全局只存一份：从别的段数机型带过来的曲线会因段数不符被拒绝（不会按错误段数写入）。
 * 猫饼的降噪**无法由软件控制**（固件没有 GAIA 命令，只能长按耳机切换），电量必须经 BlueZ
   读取；这是设备限制，不是缺陷。
 

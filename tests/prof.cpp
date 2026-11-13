@@ -51,6 +51,8 @@ int main(int argc, char **argv)
 
     // a name that merely contains a profile name must not match it
     expect("Samsung EDGE 5G", "unknown");
+    expect("Poly Voyager Focus 2", "unknown");
+    expect("Jabra Voyager", "unknown");
 
     std::printf(failures == 0 ? "\nall checks passed\n" : "\n%d check(s) failed\n", failures);
     return failures == 0 ? 0 : 1;

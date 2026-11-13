@@ -178,81 +178,24 @@ QList<int> bitmapIds(const QByteArray &payload)
 
 QString gestureLabel(int id)
 {
-    switch (id) {
-    case 0: return moondropTr("Tap");
-    case 1: return moondropTr("Swipe up");
-    case 2: return moondropTr("Swipe down");
-    case 3: return moondropTr("Tap and swipe up");
-    case 4: return moondropTr("Tap and swipe down");
-    case 5: return moondropTr("Double tap");
-    case 6: return moondropTr("Long press");
-    case 7: return moondropTr("Extended long press");
-    default: break;
-    }
+    // The app's gesture names exist inside the Dart snapshot ("Double Tap",
+    // "Long Press 1S/3S", ...), but the numeric ids they map to were not
+    // recovered, so the UI shows the id instead of inventing semantics.
     return moondropTr("Gesture %1").arg(id);
 }
 
 QString gestureContextLabel(int id)
 {
-    switch (id) {
-    case 0: return moondropTr("Always");
-    case 1: return moondropTr("Playing");
-    case 2: return moondropTr("Idle");
-    case 3: return moondropTr("In call");
-    case 4: return moondropTr("Incoming call");
-    case 5: return moondropTr("Outgoing call");
-    case 6: return moondropTr("In call, other held");
-    case 7: return moondropTr("Phone disconnected");
-    case 8: return moondropTr("Phone connected");
-    default: break;
-    }
     return moondropTr("Context %1").arg(id);
 }
 
 QString gestureTouchpadLabel(int id)
 {
-    switch (id) {
-    case 0: return moondropTr("Single earbud");
-    case 1: return moondropTr("Right");
-    case 2: return moondropTr("Left");
-    case 3: return moondropTr("Both");
-    default: break;
-    }
     return moondropTr("Touchpad %1").arg(id);
 }
 
 QString gestureActionLabel(int id)
 {
-    switch (id) {
-    case 0: return moondropTr("Play / pause");
-    case 1: return moondropTr("Stop");
-    case 2: return moondropTr("Next track");
-    case 3: return moondropTr("Previous track");
-    case 4: return moondropTr("Seek forward");
-    case 5: return moondropTr("Seek backward");
-    case 6: return moondropTr("Answer call");
-    case 7: return moondropTr("Reject call");
-    case 8: return moondropTr("Hang up");
-    case 9: return moondropTr("Transfer call");
-    case 10: return moondropTr("Cycle calls");
-    case 11: return moondropTr("Join calls");
-    case 12: return moondropTr("Mute microphone");
-    case 13: return moondropTr("Gaming mode");
-    case 14: return moondropTr("Toggle noise cancelling");
-    case 15: return moondropTr("Next noise cancelling mode");
-    case 16: return moondropTr("Volume up");
-    case 17: return moondropTr("Volume down");
-    case 18: return moondropTr("Reconnect last phone");
-    case 19: return moondropTr("Voice privacy");
-    case 20: return moondropTr("Fetch voice query");
-    case 21: return moondropTr("Voice push-to-talk");
-    case 22: return moondropTr("Cancel voice");
-    case 23: return moondropTr("Fetch voice");
-    case 24: return moondropTr("Voice assistant query");
-    case 25: return moondropTr("Disconnect last phone");
-    case 26: return moondropTr("Join calls and hang up");
-    default: break;
-    }
     return moondropTr("Action %1").arg(id);
 }
 
@@ -1364,6 +1307,10 @@ void MoondropDevice::handleFrame(const Frame &frame)
 
 void MoondropDevice::handleResponse(const Frame &frame)
 {
+    // A GAIA error frame carries a status byte, not data.  Parsing it as a
+    // value would store nonsense (e.g. an enabled LED that is unsupported).
+    const bool rejected = frame.type() == TypeError;
+    if (!rejected) {
     // Feature-gated extras (LED, timeouts, wind noise, ANC switch config, ...)
     parseExtra(frame.feature(), frame.cmd(), frame.payload);
 
@@ -1538,18 +1485,23 @@ void MoondropDevice::handleResponse(const Frame &frame)
     default:
         break;
     }
+    } // rejected
 
     // release the queue when the answer to the in-flight request arrived
     if (m_hasInFlight && m_inFlight.feature == frame.feature() && m_inFlight.command == frame.cmd()
         && frame.type() != TypeNotification) {
         m_hasInFlight = false;
-        // the command worked, so any earlier complaint is stale
-        clearError();
+        if (rejected) {
+            setError(moondropTr("The headphone rejected the request."));
+        } else {
+            // the command worked, so any earlier complaint is stale
+            clearError();
+        }
         if (m_inFlight.onDone) {
             m_inFlight.onDone();
         }
         Q_EMIT busyChanged();
-        Q_EMIT commandFinished(m_inFlight.what, true);
+        Q_EMIT commandFinished(m_inFlight.what, !rejected);
         pumpQueue();
     }
 }
@@ -1584,6 +1536,22 @@ void MoondropDevice::handleNotification(const Frame &frame)
             send(FeatureMusicProcessing, CEqGetSet, QByteArray(), true, QStringLiteral("eq-set"));
             send(FeatureMusicProcessing, CEqGetUserConfig, userEqRangePayload(), true,
                  QStringLiteral("eq-config"));
+        }
+        break;
+    case FeatureAncV2:
+        // mode changed elsewhere (touch gesture); the payload layout was not
+        // recovered, so re-read the current mode instead of parsing it
+        if (notificationRefreshAllowed(FeatureAncV2)) {
+            send(FeatureAncV2, CAncV2GetCurrentMode, QByteArray(), true,
+                 QStringLiteral("anc-v2-mode"));
+        }
+        break;
+    case FeatureOneBringTwo:
+        if (notificationRefreshAllowed(FeatureOneBringTwo)) {
+            send(FeatureOneBringTwo, CMultipointGet, QByteArray(), false,
+                 QStringLiteral("multipoint"));
+            send(FeatureOneBringTwo, CMultipointDevices, QByteArray(), true,
+                 QStringLiteral("mp-refresh"));
         }
         break;
     case FeatureBattery:
@@ -3062,8 +3030,15 @@ bool MoondropDevice::parseGestureFrame(quint8 command, const QByteArray &payload
             QByteArray request;
             request.append(char(gestureId));
             request.append(char(pending.size() & 0xFF));
-            send(FeatureGesture, CGestureGetConfiguration, request, true,
-                 QStringLiteral("gesture-config-%1-next").arg(gestureId));
+            Request next;
+            next.feature = FeatureGesture;
+            next.command = CGestureGetConfiguration;
+            next.payload = request;
+            next.what = QStringLiteral("gesture-config-%1-next").arg(gestureId);
+            next.timeoutMs = 600;
+            next.maxAttempts = 1;
+            next.onTimeout = [this, gestureId] { m_gesturePending.remove(gestureId); };
+            enqueue(next);
             return true;
         }
 
@@ -3101,12 +3076,8 @@ bool MoondropDevice::parseGestureFrame(quint8 command, const QByteArray &payload
     if (command == CGestureReset) {
         m_gestures.clear();
         m_gesturePending.clear();
-        // the device may or may not answer with the reset payload; re-read anyway
-        QTimer::singleShot(300, this, [this] {
-            if (m_transport->isConnected()) {
-                requestGestureInfo();
-            }
-        });
+        // re-read is scheduled by resetGestureConfiguration(); answering here
+        // must not schedule a second one
         return true;
     }
     return false;
@@ -3213,7 +3184,16 @@ void MoondropDevice::resetGestureConfiguration()
         return;
     }
     prepareUserAction();
+    m_gestures.clear();
+    m_gesturePending.clear();
     send(FeatureGesture, CGestureReset, QByteArray(), false, QStringLiteral("gesture-reset"));
+    // The firmware may or may not answer the reset; the mappings are only
+    // trustworthy after a fresh read, so schedule it either way.
+    QTimer::singleShot(300, this, [this] {
+        if (m_transport->isConnected()) {
+            requestGestureInfo();
+        }
+    });
 }
 
 QString MoondropDevice::presetName(int presetId) const
