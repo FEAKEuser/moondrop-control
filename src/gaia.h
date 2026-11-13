@@ -69,6 +69,7 @@ enum Feature : quint16 {
     FeatureDyBass = 27,
     FeatureAudioFileStorage = 29,
     FeatureLrChannel = 30,
+    FeatureTouchV4 = 31,
     FeatureAncV2 = 32,
 };
 
