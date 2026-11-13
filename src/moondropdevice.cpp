@@ -15,6 +15,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 
+#include <algorithm>
 #include <cstdio>
 
 #include <cerrno>
@@ -73,6 +74,14 @@ constexpr quint8 CMultipointDevices = 5;
 constexpr quint8 CMultipointNext = 6;
 constexpr quint8 CMultipointDisconnect = 7;
 constexpr quint8 CMultipointState = 1;
+
+constexpr quint8 CGestureTouchpads = 0;
+constexpr quint8 CGestureSupportedGestures = 1;
+constexpr quint8 CGestureSupportedContexts = 2;
+constexpr quint8 CGestureSupportedActions = 3;
+constexpr quint8 CGestureGetConfiguration = 4;
+constexpr quint8 CGestureSetConfiguration = 5;
+constexpr quint8 CGestureReset = 6;
 
 constexpr quint8 CBtAddressGet = 1;
 
@@ -149,6 +158,102 @@ QString extraLabel(const QString &id)
         return moondropTr("Multipoint timeout (minutes)");
     }
     return id;
+}
+
+QList<int> bitmapIds(const QByteArray &payload)
+{
+    // The app's supported gesture/context/action lists are bitmaps:
+    // id = byte index * 8 + bit index (GestureFactory::getDefaultValues).
+    QList<int> ids;
+    for (int i = 0; i < payload.size(); ++i) {
+        const quint8 value = quint8(payload.at(i));
+        for (int bit = 0; bit < 8; ++bit) {
+            if (value & (1 << bit)) {
+                ids.append(i * 8 + bit);
+            }
+        }
+    }
+    return ids;
+}
+
+QString gestureLabel(int id)
+{
+    switch (id) {
+    case 0: return moondropTr("Tap");
+    case 1: return moondropTr("Swipe up");
+    case 2: return moondropTr("Swipe down");
+    case 3: return moondropTr("Tap and swipe up");
+    case 4: return moondropTr("Tap and swipe down");
+    case 5: return moondropTr("Double tap");
+    case 6: return moondropTr("Long press");
+    case 7: return moondropTr("Extended long press");
+    default: break;
+    }
+    return moondropTr("Gesture %1").arg(id);
+}
+
+QString gestureContextLabel(int id)
+{
+    switch (id) {
+    case 0: return moondropTr("Always");
+    case 1: return moondropTr("Playing");
+    case 2: return moondropTr("Idle");
+    case 3: return moondropTr("In call");
+    case 4: return moondropTr("Incoming call");
+    case 5: return moondropTr("Outgoing call");
+    case 6: return moondropTr("In call, other held");
+    case 7: return moondropTr("Phone disconnected");
+    case 8: return moondropTr("Phone connected");
+    default: break;
+    }
+    return moondropTr("Context %1").arg(id);
+}
+
+QString gestureTouchpadLabel(int id)
+{
+    switch (id) {
+    case 0: return moondropTr("Single earbud");
+    case 1: return moondropTr("Right");
+    case 2: return moondropTr("Left");
+    case 3: return moondropTr("Both");
+    default: break;
+    }
+    return moondropTr("Touchpad %1").arg(id);
+}
+
+QString gestureActionLabel(int id)
+{
+    switch (id) {
+    case 0: return moondropTr("Play / pause");
+    case 1: return moondropTr("Stop");
+    case 2: return moondropTr("Next track");
+    case 3: return moondropTr("Previous track");
+    case 4: return moondropTr("Seek forward");
+    case 5: return moondropTr("Seek backward");
+    case 6: return moondropTr("Answer call");
+    case 7: return moondropTr("Reject call");
+    case 8: return moondropTr("Hang up");
+    case 9: return moondropTr("Transfer call");
+    case 10: return moondropTr("Cycle calls");
+    case 11: return moondropTr("Join calls");
+    case 12: return moondropTr("Mute microphone");
+    case 13: return moondropTr("Gaming mode");
+    case 14: return moondropTr("Toggle noise cancelling");
+    case 15: return moondropTr("Next noise cancelling mode");
+    case 16: return moondropTr("Volume up");
+    case 17: return moondropTr("Volume down");
+    case 18: return moondropTr("Reconnect last phone");
+    case 19: return moondropTr("Voice privacy");
+    case 20: return moondropTr("Fetch voice query");
+    case 21: return moondropTr("Voice push-to-talk");
+    case 22: return moondropTr("Cancel voice");
+    case 23: return moondropTr("Fetch voice");
+    case 24: return moondropTr("Voice assistant query");
+    case 25: return moondropTr("Disconnect last phone");
+    case 26: return moondropTr("Join calls and hang up");
+    default: break;
+    }
+    return moondropTr("Action %1").arg(id);
 }
 
 QString macFromBytes(const QByteArray &payload)
@@ -696,6 +801,11 @@ void MoondropDevice::clearDeviceInfo()
     m_ancSwitch.clear();
     m_mpDevices.clear();
     m_mpTimeout = -1;
+    m_gestures.clear();
+    m_gesturePending.clear();
+    m_gesturesSupported.clear();
+    m_contextsSupported.clear();
+    m_actionsSupported.clear();
 
     // the parser may hold half a frame from the old link
     m_stream.clear();
@@ -714,6 +824,7 @@ void MoondropDevice::clearDeviceInfo()
     Q_EMIT extraChanged();
     Q_EMIT ancSwitchChanged();
     Q_EMIT multipointChanged();
+    Q_EMIT gesturesChanged();
 }
 
 void MoondropDevice::setState(State state)
@@ -1336,6 +1447,10 @@ void MoondropDevice::handleResponse(const Frame &frame)
         }
         break;
 
+    case FeatureGesture:
+        parseGestureFrame(frame.cmd(), frame.payload);
+        break;
+
     case FeatureOneBringTwo:
         if (frame.cmd() == CMultipointGet) {
             m_multipointSupported = true;
@@ -1652,6 +1767,9 @@ void MoondropDevice::refreshDetails()
     // fire-and-forget slot on a single-task firmware.  `sendRaw(0, 7, "<feature>")`
     // is available for devices that do need it.
     requestExtras();
+    if (hasFeature(FeatureGesture)) {
+        requestGestureInfo();
+    }
 
     // noise cancelling exists in three command families: the profile knows which
     // one the model answers, otherwise ask the supported one
@@ -2643,6 +2761,247 @@ void MoondropDevice::disconnectMultipointDevice(int deviceNumber)
          QStringLiteral("mp-disconnect"));
     // refresh the list from the device instead of trusting the local copy
     send(FeatureOneBringTwo, CMultipointDevices, QByteArray(), true, QStringLiteral("mp-refresh"));
+}
+
+// ---------------------------------------------------------------------------
+// Button gestures (GAIA feature 11)
+// ---------------------------------------------------------------------------
+
+QVariantList MoondropDevice::gestureActionOptions() const
+{
+    QList<int> ids;
+    for (int id : m_actionsSupported) {
+        ids.append(id);
+    }
+    std::sort(ids.begin(), ids.end());
+    QVariantList list;
+    for (int id : ids) {
+        QVariantMap option;
+        option.insert(QStringLiteral("id"), id);
+        option.insert(QStringLiteral("label"), gestureActionLabel(id));
+        list.append(option);
+    }
+    return list;
+}
+
+void MoondropDevice::requestGestureInfo()
+{
+    if (!m_transport->isConnected() || !hasFeature(FeatureGesture)) {
+        return;
+    }
+    // The app fetches these four lists together, then one request per gesture.
+    static const quint8 commands[] = {
+        CGestureTouchpads, CGestureSupportedGestures, CGestureSupportedContexts,
+        CGestureSupportedActions,
+    };
+    for (quint8 command : commands) {
+        send(FeatureGesture, command, QByteArray(), true,
+             QStringLiteral("gesture-info-%1").arg(command));
+    }
+}
+
+bool MoondropDevice::parseGestureFrame(quint8 command, const QByteArray &payload)
+{
+    if (command == CGestureTouchpads) {
+        // touchpad configuration type; the touchpads themselves arrive inside
+        // every configuration entry
+        return true;
+    }
+    if (command == CGestureSupportedGestures || command == CGestureSupportedContexts
+        || command == CGestureSupportedActions) {
+        QSet<int> &target = command == CGestureSupportedGestures ? m_gesturesSupported
+                            : command == CGestureSupportedContexts ? m_contextsSupported
+                                                                    : m_actionsSupported;
+        target.clear();
+        for (int id : bitmapIds(payload)) {
+            target.insert(id);
+        }
+        if (command == CGestureSupportedGestures) {
+            // one configuration read per gesture, starting at offset 0
+            for (int id : bitmapIds(payload)) {
+                QByteArray request;
+                request.append(char(id));
+                request.append(char(0));
+                send(FeatureGesture, CGestureGetConfiguration, request, true,
+                     QStringLiteral("gesture-config-%1").arg(id));
+            }
+        }
+        Q_EMIT gesturesChanged();
+        return true;
+    }
+    if (command == CGestureGetConfiguration) {
+        if (payload.isEmpty()) {
+            return true;
+        }
+        const quint8 first = quint8(payload.at(0));
+        const int gestureId = first & 0x7F;
+        const bool more = (first & 0x80) != 0;
+        QVariantList &pending = m_gesturePending[gestureId];
+        for (int i = 1; i + 1 < payload.size(); i += 2) {
+            const quint16 value = quint16((quint16(quint8(payload.at(i))) << 8)
+                                          | quint16(quint8(payload.at(i + 1))));
+            QVariantMap entry;
+            entry.insert(QStringLiteral("touchpad"), int((value >> 14) & 0x03));
+            entry.insert(QStringLiteral("context"), int((value >> 7) & 0x7F));
+            entry.insert(QStringLiteral("action"), int(value & 0x7F));
+            pending.append(entry);
+        }
+        if (more) {
+            QByteArray request;
+            request.append(char(gestureId));
+            request.append(char(pending.size() & 0xFF));
+            send(FeatureGesture, CGestureGetConfiguration, request, true,
+                 QStringLiteral("gesture-config-%1-next").arg(gestureId));
+            return true;
+        }
+
+        // decorate the accumulated entries for the UI
+        QVariantList decorated;
+        for (const QVariant &item : pending) {
+            QVariantMap entry = item.toMap();
+            const int touchpad = entry.value(QStringLiteral("touchpad")).toInt();
+            const int context = entry.value(QStringLiteral("context")).toInt();
+            const int action = entry.value(QStringLiteral("action")).toInt();
+            entry.insert(QStringLiteral("touchpadLabel"), gestureTouchpadLabel(touchpad));
+            entry.insert(QStringLiteral("contextLabel"), gestureContextLabel(context));
+            entry.insert(QStringLiteral("actionLabel"), gestureActionLabel(action));
+            decorated.append(entry);
+        }
+        QVariantMap row;
+        row.insert(QStringLiteral("id"), gestureId);
+        row.insert(QStringLiteral("label"), gestureLabel(gestureId));
+        row.insert(QStringLiteral("entries"), decorated);
+        bool replaced = false;
+        for (int i = 0; i < m_gestures.size(); ++i) {
+            if (m_gestures.at(i).toMap().value(QStringLiteral("id")).toInt() == gestureId) {
+                m_gestures[i] = row;
+                replaced = true;
+                break;
+            }
+        }
+        if (!replaced) {
+            m_gestures.append(row);
+        }
+        m_gesturePending.remove(gestureId);
+        Q_EMIT gesturesChanged();
+        return true;
+    }
+    if (command == CGestureReset) {
+        m_gestures.clear();
+        m_gesturePending.clear();
+        // the device may or may not answer with the reset payload; re-read anyway
+        QTimer::singleShot(300, this, [this] {
+            if (m_transport->isConnected()) {
+                requestGestureInfo();
+            }
+        });
+        return true;
+    }
+    return false;
+}
+
+void MoondropDevice::sendGestureConfiguration(int gestureId)
+{
+    const QVariantList entries = [&] {
+        for (const QVariant &row : m_gestures) {
+            const QVariantMap map = row.toMap();
+            if (map.value(QStringLiteral("id")).toInt() == gestureId) {
+                return map.value(QStringLiteral("entries")).toList();
+            }
+        }
+        return QVariantList();
+    }();
+    if (entries.isEmpty()) {
+        return;
+    }
+
+    QList<quint16> values;
+    for (const QVariant &item : entries) {
+        const QVariantMap entry = item.toMap();
+        const quint16 value = quint16(int(entry.value(QStringLiteral("action")).toInt()) & 0x7F)
+                              | quint16(int(entry.value(QStringLiteral("context")).toInt() & 0x7F) << 7)
+                              | quint16(int(entry.value(QStringLiteral("touchpad")).toInt() & 0x03) << 14);
+        values.append(value);
+    }
+
+    // One packet per 16 pairs keeps the payload well below the transport limits
+    // the app negotiates; the more bit tells the device to append the next chunk.
+    const int chunk = 16;
+    int offset = 0;
+    do {
+        const int remaining = values.size() - offset;
+        const int count = qMin(chunk, remaining);
+        const bool more = remaining > count;
+        QByteArray payload;
+        payload.append(char((gestureId & 0x7F) | (more ? 0x80 : 0)));
+        payload.append(char(offset & 0xFF));
+        for (int i = 0; i < count; ++i) {
+            const quint16 value = values.at(offset + i);
+            payload.append(char((value >> 8) & 0xFF));
+            payload.append(char(value & 0xFF));
+        }
+        send(FeatureGesture, CGestureSetConfiguration, payload, false,
+             QStringLiteral("gesture-set-%1").arg(gestureId));
+        offset += count;
+    } while (offset < values.size());
+
+    // read back the first page: the device does not acknowledge the write
+    QByteArray verify;
+    verify.append(char(gestureId));
+    verify.append(char(0));
+    send(FeatureGesture, CGestureGetConfiguration, verify, true,
+         QStringLiteral("gesture-verify-%1").arg(gestureId));
+}
+
+void MoondropDevice::setGestureAction(int gestureId, int touchpad, int context, int action)
+{
+    if (!m_transport->isConnected()) {
+        return;
+    }
+    for (int i = 0; i < m_gestures.size(); ++i) {
+        QVariantMap row = m_gestures.at(i).toMap();
+        if (row.value(QStringLiteral("id")).toInt() != gestureId) {
+            continue;
+        }
+        QVariantList entries = row.value(QStringLiteral("entries")).toList();
+        bool updated = false;
+        for (int j = 0; j < entries.size(); ++j) {
+            QVariantMap entry = entries.at(j).toMap();
+            if (entry.value(QStringLiteral("touchpad")).toInt() == touchpad
+                && entry.value(QStringLiteral("context")).toInt() == context) {
+                entry.insert(QStringLiteral("action"), action);
+                entry.insert(QStringLiteral("actionLabel"), gestureActionLabel(action));
+                entries[j] = entry;
+                updated = true;
+                break;
+            }
+        }
+        if (!updated) {
+            QVariantMap entry;
+            entry.insert(QStringLiteral("touchpad"), touchpad);
+            entry.insert(QStringLiteral("context"), context);
+            entry.insert(QStringLiteral("action"), action);
+            entry.insert(QStringLiteral("touchpadLabel"), gestureTouchpadLabel(touchpad));
+            entry.insert(QStringLiteral("contextLabel"), gestureContextLabel(context));
+            entry.insert(QStringLiteral("actionLabel"), gestureActionLabel(action));
+            entries.append(entry);
+        }
+        row.insert(QStringLiteral("entries"), entries);
+        m_gestures[i] = row;
+        Q_EMIT gesturesChanged();
+        prepareUserAction();
+        sendGestureConfiguration(gestureId);
+        return;
+    }
+}
+
+void MoondropDevice::resetGestureConfiguration()
+{
+    if (!m_transport->isConnected()) {
+        return;
+    }
+    prepareUserAction();
+    send(FeatureGesture, CGestureReset, QByteArray(), false, QStringLiteral("gesture-reset"));
 }
 
 QString MoondropDevice::presetName(int presetId) const

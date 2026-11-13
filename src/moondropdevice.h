@@ -141,6 +141,11 @@ class MoondropDevice : public QObject
     // connected multipoint devices [{number, address, name}]
     Q_PROPERTY(QVariantList multipointDevices READ multipointDevices NOTIFY multipointChanged)
     Q_PROPERTY(int multipointTimeout READ multipointTimeout NOTIFY multipointChanged)
+    // button-gesture configuration (GAIA feature 11):
+    // [{id, label, entries:[{touchpad, touchpadLabel, context, contextLabel,
+    //    action, actionLabel}]}]
+    Q_PROPERTY(QVariantList gestures READ gestures NOTIFY gesturesChanged)
+    Q_PROPERTY(QVariantList gestureActionOptions READ gestureActionOptions NOTIFY gesturesChanged)
 
     Q_PROPERTY(QString lastError READ lastError NOTIFY lastErrorChanged)
     Q_PROPERTY(QVariantList pendingBands READ pendingBands NOTIFY eqChanged)
@@ -233,6 +238,8 @@ public:
     QVariantMap ancSwitchConfig() const;
     QVariantList multipointDevices() const { return m_mpDevices; }
     int multipointTimeout() const { return m_mpTimeout; }
+    QVariantList gestures() const { return m_gestures; }
+    QVariantList gestureActionOptions() const;
 
     QString lastError() const { return m_lastError; }
 
@@ -261,6 +268,8 @@ public:
     Q_INVOKABLE void setAncSwitchConfig(bool state, bool ancOn, bool ancOff, bool transparency, int order);
     Q_INVOKABLE void disconnectMultipointDevice(int deviceNumber);
     Q_INVOKABLE void requestNextMultipointDevice();
+    Q_INVOKABLE void setGestureAction(int gestureId, int touchpad, int context, int action);
+    Q_INVOKABLE void resetGestureConfiguration();
     Q_INVOKABLE QString presetName(int presetId) const;
     // Escape hatch for reverse engineering: send an arbitrary GAIA command,
     // payload given as hex string, e.g. sendRaw(5, 5, "0004").
@@ -289,6 +298,7 @@ Q_SIGNALS:
     void extraChanged();
     void ancSwitchChanged();
     void multipointChanged();
+    void gesturesChanged();
     void lastErrorChanged();
     void logMessage(const QString &message);
     void commandFinished(const QString &what, bool ok);
@@ -386,6 +396,10 @@ private:
     void parseDacGain(const QByteArray &payload);
     void parseMultipoint(const QByteArray &payload);
     void parseMultipointDevice(const QByteArray &payload, bool first);
+    // Button gestures (feature 11).
+    void requestGestureInfo();
+    bool parseGestureFrame(quint8 command, const QByteArray &payload);
+    void sendGestureConfiguration(int gestureId);
     // Extra settings (official app's feature-gated parameters).
     void requestExtras();
     bool extraSupported(const QString &id) const;
@@ -486,6 +500,11 @@ private:
     QByteArray m_ancSwitch; // [state][ancOn][ancOff][tp][order]
     QVariantList m_mpDevices; // [{number,address,name}]
     int m_mpTimeout = -1;
+    QVariantList m_gestures; // [{id, entries:[{touchpad,context,action}]}]
+    QSet<int> m_gesturesSupported;
+    QSet<int> m_contextsSupported;
+    QSet<int> m_actionsSupported;
+    QHash<int, QVariantList> m_gesturePending;
 
     Stream m_stream;
     QQueue<Request> m_queue;

@@ -11,6 +11,8 @@
 #include "gaia.h"
 #include "transport.h"
 
+#include <QHash>
+#include <QList>
 #include <QObject>
 #include <QTimer>
 
@@ -131,6 +133,18 @@ public:
     }
 
 private:
+    QList<quint16> ensureGestureConfigs(int gesture)
+    {
+        if (!m_gestureConfigs.contains(gesture)) {
+            QList<quint16> configs;
+            for (int context = 0; context < 9; ++context) {
+                configs.append(quint16(context << 7)); // touchpad 0, action 0
+            }
+            m_gestureConfigs.insert(gesture, configs);
+        }
+        return m_gestureConfigs.value(gesture);
+    }
+
     void respond(const Frame &sent)
     {
         const quint16 feature = sent.feature();
@@ -152,7 +166,7 @@ private:
                     // ONEBRINGTWO 1, BT_ADDRESS 1, POWER_TIMEOUT 1, DYBASS 1,
                     // LR_CHANNEL 1
                     reply(feature, 1, QByteArray::fromHex(
-                                           "0003020108040d0110011101120113011401150119011b011e01"));
+                                           "0003020108040b010d0110011101120113011401150119011b011e01"));
                 } else {
                     reply(feature, 1, QByteArray::fromHex("000301050101010602000208010f0110011101140115010d01"));
                 }
@@ -388,6 +402,75 @@ private:
             }
         }
 
+        if (feature == FeatureGesture && m_model == Rich) {
+            switch (command) {
+            case 0:
+                reply(feature, 0, QByteArray(1, '\x00'));
+                return;
+            case 1:
+                reply(feature, 1, QByteArray(1, char(0xFF))); // gestures 0..7
+                return;
+            case 2:
+                reply(feature, 2, QByteArray::fromHex("ff01")); // contexts 0..8
+                return;
+            case 3:
+                reply(feature, 3, QByteArray::fromHex("ffffff07")); // actions 0..26
+                return;
+            case 4: {
+                if (sent.payload.size() < 2) {
+                    return;
+                }
+                const int gesture = quint8(sent.payload.at(0)) & 0x7F;
+                int offset = quint8(sent.payload.at(1));
+                const QList<quint16> configs = ensureGestureConfigs(gesture);
+                const int remaining = configs.size() - qMin(offset, configs.size());
+                const int count = qMin(remaining, 18);
+                QByteArray response;
+                response.append(char((gesture & 0x7F) | (remaining > count ? 0x80 : 0)));
+                for (int i = 0; i < count; ++i) {
+                    const quint16 value = configs.at(offset + i);
+                    response.append(char((value >> 8) & 0xFF));
+                    response.append(char(value & 0xFF));
+                }
+                reply(feature, 4, response);
+                return;
+            }
+            case 5: {
+                if (sent.payload.size() < 2) {
+                    return;
+                }
+                const int gesture = quint8(sent.payload.at(0)) & 0x7F;
+                const bool more = (quint8(sent.payload.at(0)) & 0x80) != 0;
+                const int offset = quint8(sent.payload.at(1));
+                QList<quint16> configs = ensureGestureConfigs(gesture);
+                int written = 0;
+                for (int i = 2; i + 1 < sent.payload.size(); i += 2, ++written) {
+                    const quint16 value = quint16((quint16(quint8(sent.payload.at(i))) << 8)
+                                                  | quint16(quint8(sent.payload.at(i + 1))));
+                    const int index = offset + written;
+                    if (index < configs.size()) {
+                        configs[index] = value;
+                    } else {
+                        configs.append(value);
+                    }
+                }
+                if (!more) {
+                    while (configs.size() > offset + written) {
+                        configs.removeLast();
+                    }
+                }
+                m_gestureConfigs.insert(gesture, configs);
+                return;
+            }
+            case 6:
+                m_gestureConfigs.clear();
+                reply(feature, 6, QByteArray());
+                return;
+            default:
+                return;
+            }
+        }
+
         if (m_model == Rich) {
             switch (feature) {
             case FeatureLed:
@@ -495,6 +578,8 @@ private:
     int m_mpTimeout = 30;
     bool m_mpFirst = true;
     bool m_mpSecond = true;
+    // button gestures: 8 gestures, 9 contexts, touchpad 0, action 0 by default
+    QHash<int, QList<quint16>> m_gestureConfigs;
     QByteArray m_eq = QByteArray::fromHex(
         "000400000017066600ffa600f051990000a2057864cc0000b408fc1ccc00ff521af413330000b4");
 };

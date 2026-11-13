@@ -76,6 +76,77 @@ PlasmaComponents3.ScrollView {
             text: i18n("This headphone does not report any of the extra settings (LED, timeouts, wind noise, spatial audio, …).")
         }
 
+        PlasmaComponents3.Label {
+            Layout.fillWidth: true
+            Layout.topMargin: Kirigami.Units.smallSpacing
+            visible: Moondrop.gestures.length > 0
+            text: i18n("Button gestures")
+            font.bold: true
+        }
+
+        Repeater {
+            model: Moondrop.gestures
+
+            ColumnLayout {
+                id: gestureBlock
+                required property var modelData
+                readonly property int gestureId: modelData.id
+                Layout.fillWidth: true
+                spacing: 1
+
+                PlasmaComponents3.Label {
+                    Layout.fillWidth: true
+                    text: gestureBlock.modelData.label
+                    opacity: 0.8
+                    font: Kirigami.Theme.smallFont
+                }
+
+                Repeater {
+                    model: gestureBlock.modelData.entries
+
+                    RowLayout {
+                        required property var modelData
+                        Layout.fillWidth: true
+                        spacing: Kirigami.Units.smallSpacing
+
+                        PlasmaComponents3.Label {
+                            Layout.fillWidth: true
+                            elide: Text.ElideRight
+                            font: Kirigami.Theme.smallFont
+                            text: modelData.touchpadLabel + " · " + modelData.contextLabel
+                        }
+                        PlasmaComponents3.ComboBox {
+                            enabled: Moondrop.connected && !Moondrop.busy
+                            textRole: "label"
+                            valueRole: "id"
+                            model: Moondrop.gestureActionOptions
+                            currentIndex: {
+                                const options = Moondrop.gestureActionOptions
+                                for (let i = 0; i < options.length; ++i) {
+                                    if (options[i].id === modelData.action) {
+                                        return i
+                                    }
+                                }
+                                return -1
+                            }
+                            onActivated: index => Moondrop.setGestureAction(
+                                gestureBlock.gestureId, modelData.touchpad,
+                                modelData.context, Moondrop.gestureActionOptions[index].id)
+                        }
+                    }
+                }
+            }
+        }
+
+        PlasmaComponents3.Button {
+            Layout.fillWidth: true
+            visible: Moondrop.gestures.length > 0
+            icon.name: "edit-undo"
+            text: i18n("Reset gestures to default")
+            enabled: Moondrop.connected && !Moondrop.busy
+            onClicked: Moondrop.resetGestureConfiguration()
+        }
+
         ConnectionHint {}
 
         Item {

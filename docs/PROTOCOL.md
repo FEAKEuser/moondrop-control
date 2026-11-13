@@ -498,6 +498,19 @@ EDGE 实测接受 4 字节头、记录从 4 开始的写法（39 字节）并原
 **电池 id**（`Battery`）：0 SINGLE_DEVICE（整机）、1 LEFT、2 RIGHT、3 CHARGER_CASE。
 与第 7 节的实测一致。
 
+**按键手势（feature 11）**（`GestureFactory`、`GetGestureConfigurationResponse`、
+`SetGestureConfiguration`、`Configuration`）：
+
+* **支持列表**（命令 1/2/3，触摸板数 0）：位图，`id = 字节序号 × 8 + 位序号`
+  （`GestureFactory.getDefaultValues`）。gesture 0..7、context 0..8、action 0..26。
+* **读某手势的配置**（命令 4）：payload `[gestureId][offset]`；响应
+  `[gestureId | (more<<7)][uint16 配置…]`。`offset` 是**已读配置条数**，`more=1` 时用累计条数再读一页。
+* **写配置**（命令 5）：payload `[gestureId | (more<<7)][offset][uint16 配置…]`；
+  每条配置 `action`（bit0..6）| `context`（bit7..13）| `touchpad`（bit14..15）。
+  App 按最大 payload 分块，本项目按 16 条一包。
+* **恢复默认**（命令 6），随后重新读一遍配置。
+
+
 **ANC 开关配置（8/41、32/41）**：5 字节
 `[STATE][ANC_ON][ANC_OFF][TP][ORDER]`（App 的 `SWITCH_CONF_FIELDS`）。
 STATE = 0/1（`ACActions`）；后三个是「该模式是否纳入切换」；ORDER 取值 0..5

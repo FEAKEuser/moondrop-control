@@ -65,6 +65,24 @@ bool hasExtra(const MoondropDevice &device, const QString &id)
     return extraValue(device, id).isValid();
 }
 
+QVariant gestureAction(const MoondropDevice &device, int gestureId, int touchpad, int context)
+{
+    for (const QVariant &row : device.gestures()) {
+        const QVariantMap map = row.toMap();
+        if (map.value(QStringLiteral("id")).toInt() != gestureId) {
+            continue;
+        }
+        for (const QVariant &item : map.value(QStringLiteral("entries")).toList()) {
+            const QVariantMap entry = item.toMap();
+            if (entry.value(QStringLiteral("touchpad")).toInt() == touchpad
+                && entry.value(QStringLiteral("context")).toInt() == context) {
+                return entry.value(QStringLiteral("action"));
+            }
+        }
+    }
+    return QVariant();
+}
+
 } // namespace
 
 int main(int argc, char **argv)
@@ -184,6 +202,25 @@ int main(int argc, char **argv)
               && device.multipointDevices().first().toMap().value(QStringLiteral("name")).toString()
                      == QLatin1String("Laptop"),
           QStringLiteral("the disconnected device is gone after the refresh"));
+
+    // --- button gestures (feature 11) ----------------------------------------
+    check(device.gestures().size() == 8, QStringLiteral("all eight gestures are read"));
+    if (!device.gestures().isEmpty()) {
+        const QVariantMap first = device.gestures().first().toMap();
+        check(first.value(QStringLiteral("entries")).toList().size() == 9,
+              QStringLiteral("the first gesture has nine context entries"));
+    }
+    check(device.gestureActionOptions().size() == 27,
+          QStringLiteral("27 actions are offered"));
+
+    device.setGestureAction(0, 0, 0, 2);
+    check(waitFor([&] { return !device.busy(); }), QStringLiteral("gesture write finishes"));
+    const QVariant action = gestureAction(device, 0, 0, 0);
+    check(action.toInt() == 2, QStringLiteral("gesture action is written and read back"));
+
+    device.resetGestureConfiguration();
+    check(waitFor([&] { return gestureAction(device, 0, 0, 0).toInt() == 0; }, 6000),
+          QStringLiteral("reset restores the default gesture action"));
 
     std::printf(failures == 0 ? "\nall checks passed\n" : "\n%d check(s) failed\n", failures);
     return failures == 0 ? 0 : 1;
