@@ -617,5 +617,8 @@ msgstr "在本项目真机上实测（固件 1.0.0）"
 msgid "Some firmware cannot turn this off; the switch returns to the device's value."
 msgstr "部分固件无法关闭此开关，控件会回到设备上报的值。"
 
+msgid "Noise"
+msgstr "降噪"
+
 msgid "The headphone rejected the request."
 msgstr "耳机拒绝了该请求。"

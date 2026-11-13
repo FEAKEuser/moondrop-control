@@ -58,6 +58,9 @@ PlasmaComponents3.ScrollView {
                 PlasmaComponents3.Button {
                     required property var modelData
                     Layout.fillWidth: true
+                    // equal thirds: without the cap, the width follows the
+                    // label ("Noise cancelling" is wider than "Off")
+                    Layout.maximumWidth: (page.availableWidth - 2 * Kirigami.Units.smallSpacing) / 3
                     Layout.preferredHeight: Kirigami.Units.gridUnit * 4
                     checkable: true
                     checked: Moondrop.ancMode === modelData.mode

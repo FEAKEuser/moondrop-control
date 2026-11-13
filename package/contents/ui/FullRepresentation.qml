@@ -82,25 +82,23 @@ PlasmaExtras.Representation {
             id: tabBar
             Layout.fillWidth: true
 
+            // Text-only tabs: with icons the fifth of a 22-gridUnit panel is
+            // too narrow and "Tuning"/"Sound" wrap into two lines.  The page
+            // headings keep the full names ("Noise cancelling mode").
             PlasmaComponents3.TabButton {
-                text: i18n("Noise cancelling")
-                icon.name: "audio-volume-muted"
+                text: i18n("Noise")
             }
             PlasmaComponents3.TabButton {
                 text: i18n("Tuning")
-                icon.name: "audio-equalizer"
             }
             PlasmaComponents3.TabButton {
                 text: i18n("Sound")
-                icon.name: "audio-card"
             }
             PlasmaComponents3.TabButton {
                 text: i18n("Info")
-                icon.name: "help-about"
             }
             PlasmaComponents3.TabButton {
                 text: i18n("More")
-                icon.name: "preferences-other"
             }
         }
 
