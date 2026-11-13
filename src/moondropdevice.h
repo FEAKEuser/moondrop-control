@@ -133,6 +133,14 @@ class MoondropDevice : public QObject
     Q_PROPERTY(int dacGain READ dacGain NOTIFY codecChanged)
     Q_PROPERTY(bool multipointSupported READ multipointSupported NOTIFY capabilitiesChanged)
     Q_PROPERTY(bool multipointEnabled READ multipointEnabled NOTIFY codecChanged)
+    // one entry per supported extra setting:
+    // {id, label, kind ("bool"|"int"), value, min, max, writable}
+    Q_PROPERTY(QVariantList extraSettings READ extraSettings NOTIFY extraChanged)
+    // 5 byte ANC switch configuration {state, ancOn, ancOff, transparency, order}
+    Q_PROPERTY(QVariantMap ancSwitchConfig READ ancSwitchConfig NOTIFY ancSwitchChanged)
+    // connected multipoint devices [{number, address, name}]
+    Q_PROPERTY(QVariantList multipointDevices READ multipointDevices NOTIFY multipointChanged)
+    Q_PROPERTY(int multipointTimeout READ multipointTimeout NOTIFY multipointChanged)
 
     Q_PROPERTY(QString lastError READ lastError NOTIFY lastErrorChanged)
     Q_PROPERTY(QVariantList pendingBands READ pendingBands NOTIFY eqChanged)
@@ -221,6 +229,11 @@ public:
     bool multipointSupported() const { return m_multipointSupported; }
     bool multipointEnabled() const { return m_multipointEnabled; }
 
+    QVariantList extraSettings() const;
+    QVariantMap ancSwitchConfig() const;
+    QVariantList multipointDevices() const { return m_mpDevices; }
+    int multipointTimeout() const { return m_mpTimeout; }
+
     QString lastError() const { return m_lastError; }
 
     // ---- QML API -----------------------------------------------------------
@@ -242,6 +255,12 @@ public:
     Q_INVOKABLE void setLhdcEnabled(bool enabled);
     Q_INVOKABLE void setDacGain(int gain);
     Q_INVOKABLE void setMultipointEnabled(bool enabled);
+    // Extra settings the official app exposes (LED, timeouts, wind noise, ...);
+    // setExtra() takes the id from extraSettings().
+    Q_INVOKABLE void setExtra(const QString &id, const QVariant &value);
+    Q_INVOKABLE void setAncSwitchConfig(bool state, bool ancOn, bool ancOff, bool transparency, int order);
+    Q_INVOKABLE void disconnectMultipointDevice(int deviceNumber);
+    Q_INVOKABLE void requestNextMultipointDevice();
     Q_INVOKABLE QString presetName(int presetId) const;
     // Escape hatch for reverse engineering: send an arbitrary GAIA command,
     // payload given as hex string, e.g. sendRaw(5, 5, "0004").
@@ -267,6 +286,9 @@ Q_SIGNALS:
     void eqChanged();
     void codecChanged();
     void presetNamesChanged();
+    void extraChanged();
+    void ancSwitchChanged();
+    void multipointChanged();
     void lastErrorChanged();
     void logMessage(const QString &message);
     void commandFinished(const QString &what, bool ok);
@@ -363,6 +385,13 @@ private:
     void parseCodec(quint16 feature, quint8 command, const QByteArray &payload);
     void parseDacGain(const QByteArray &payload);
     void parseMultipoint(const QByteArray &payload);
+    void parseMultipointDevice(const QByteArray &payload, bool first);
+    // Extra settings (official app's feature-gated parameters).
+    void requestExtras();
+    bool extraSupported(const QString &id) const;
+    bool parseExtra(quint16 feature, quint8 command, const QByteArray &payload);
+    void writeExtra(const QString &id, const QVariant &value);
+    quint16 ancSwitchFeature() const;
     void parseSupportedFeatures(const QByteArray &payload);
     void updatePresetNames();
     // Drop everything learned from the headphone that was connected.  Called when
@@ -449,6 +478,14 @@ private:
     int m_dacGain = -1;
     bool m_multipointSupported = false;
     bool m_multipointEnabled = false;
+
+    // Extra settings from the official app's feature tables.
+    QHash<QString, QVariant> m_extras;
+    QSet<QString> m_extraAbsent; // probed and unanswered: stop asking this session
+    QHash<quint16, quint8> m_featureVersions;
+    QByteArray m_ancSwitch; // [state][ancOn][ancOff][tp][order]
+    QVariantList m_mpDevices; // [{number,address,name}]
+    int m_mpTimeout = -1;
 
     Stream m_stream;
     QQueue<Request> m_queue;

@@ -71,10 +71,11 @@ Space Travel 的帧格式），以及官方 App 产品目录里的机型事实�
 
 | 页面 | 功能 |
 | --- | --- |
-| **Noise cancelling（降噪）** | 关闭 / 降噪 / 通透 三档切换（自动识别设备的 ANC 指令族） |
+| **Noise cancelling（降噪）** | 关闭 / 降噪 / 通透 三档切换（自动识别设备的 ANC 指令族）；可配置耳机按键循环哪些模式、切换顺序（GAIA `8/41`、`8/42`） |
 | **Tuning（调音）** | 图形化参数均衡器：直接拖动曲线上的频点调频率/增益、滚轮调 Q；预设下拉切换；支持粘贴 AutoEq / EqualizerAPO 滤波器列表导入 |
-| **Sound（声音）** | LDAC、LC3、LHDC 开关，三档 DAC 增益，多点连接开关 |
+| **Sound（声音）** | LDAC、LC3、LHDC 开关，三档 DAC 增益，多点连接开关、超时与已连接设备（可断开某一台） |
 | **Info（信息）** | 电量（左耳/右耳/充电盒，按机型）、型号、固件版本、GAIA 版本、序列号、设备地址、已匹配的型号档案与**数据来源**、能力列表 |
+| **More（更多）** | 设备上报的额外开关：LED、空间音频/头部跟踪、佩戴检测、动态低音、左右声道互换、关机/待机超时、风噪抑制、自动通透及其保持时间、降噪增益 |
 | 面板图标 | 自绘 SVG 耳机图形 + **竖立**的电池图标（电量用填充高度表示），整块约 24 x 16 px |
 | 设置页 | 选择已配对耳机（从 BlueZ 读取）、RFCOMM 通道、自动连接 / 自动重连、型号档案、增益档位顺序 |
 | 自动连接 | Plasma 启动后自动连；监听 BlueZ 事件，耳机出现时自动接管；断线后按退避策略重连 |
@@ -379,6 +380,11 @@ packaging/                   Fedora spec、Arch PKGBUILD、Debian、AppStream
   写入格式在 App 里是 2 字节头，EDGE 实测接受 4 字节头，10 段机型尚未上机验证。
 * 官方 App 把预设 id `0` 当作 **OFF（均衡器关闭）**（`PreSetType`），`0x3F` 是用户 PEQ；
   本项目默认仍把 id `0` 显示成 “Standard”（名称可配置）——名称语义尚未在真机上核对。
+* “More（更多）”页的额外设置按 App 的命令表实现（`LED 19/1,2`、`空间音频 18/1–4`、`光感 17/1,2`、
+  `动态低音 27/1,2`、`声道 30/1,2`、`开关机/待机超时 25/1–4`、`风噪 8/22–24`、`自动通透 8/25–29`、
+  `降噪增益 8/5,6`）。**除 EDGE 的开关配置（8/41 实测）外都没有真机验证**；设备不回的项会探测一次
+  （600 ms）后在该连接内隐藏。通知订阅（`0/7`）默认不发：EDGE 不注册也会主动推送，
+  需要时可 `moondrop-cli raw 0 7 08`。
 * 只实现了只读的“设备信息 / 电量 / 能力”，未实现固件升级（OTA）与触控手势配置。
 * 猫饼的降噪**无法由软件控制**（固件没有对应的 GAIA 命令，只能长按耳机切换），
   且电量必须经 BlueZ 读取；这是设备限制，不是缺陷。
@@ -401,6 +407,7 @@ MOONDROP_PREVIEW_CONNECT=1 QT_QPA_PLATFORM=offscreen \
 ./build/cli/moondrop-selftest          # 协议编解码
 ./build/cli/moondrop-profile-check     # 型号档案匹配
 ./build/cli/moondrop-conncheck         # 连接 / 队列 / 通知行为
+./build/cli/moondrop-extras-check      # 额外设置：读写、ANC 开关配置、多点设备列表
 ./build/cli/moondrop-scan-check        # 通道扫描（含「连上但不回包」的干扰通道）
 ./build/cli/moondrop-ebusy-check       # 控制通道被占用时的重试预算与报错
 ./build/cli/moondrop-switch-check      # 换耳机时不会残留旧机型信息

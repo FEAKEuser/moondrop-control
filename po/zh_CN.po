@@ -487,3 +487,82 @@ msgstr "功能按设备上报的能力自动探测"
 
 msgid "Official app catalog: %1 module, %2 EQ bands; commands are not measured on hardware yet."
 msgstr "官方 App 产品目录：%1 模块、%2 段均衡器；命令族尚未在真机验证。"
+
+# ---- extra settings (feature-gated, PROTOCOL 13.4) ----------------------
+msgid "Device settings"
+msgstr "设备设置"
+
+msgid "This headphone does not report any of the extra settings (LED, timeouts, wind noise, spatial audio, …)."
+msgstr "此耳机没有上报任何额外设置（LED、超时、风噪、空间音频等）。"
+
+msgid "LED indicator"
+msgstr "LED 指示灯"
+
+msgid "Spatial audio"
+msgstr "空间音频"
+
+msgid "Head tracking"
+msgstr "头部跟踪"
+
+msgid "Wearing sensor"
+msgstr "佩戴检测"
+
+msgid "Dynamic bass"
+msgstr "动态低音"
+
+msgid "Swap left and right"
+msgstr "左右声道互换"
+
+msgid "Power off after (minutes)"
+msgstr "自动关机（分钟）"
+
+msgid "Standby after (minutes)"
+msgstr "自动待机（分钟）"
+
+msgid "Auto transparency"
+msgstr "自动通透"
+
+msgid "Auto transparency hold time"
+msgstr "自动通透保持时间"
+
+msgid "Noise cancelling gain"
+msgstr "降噪增益"
+
+msgid "Multipoint timeout (minutes)"
+msgstr "多点连接超时（分钟）"
+
+msgid "Switchable modes"
+msgstr "可切换模式"
+
+msgid "Cycle modes with the headphone button"
+msgstr "用耳机按键循环切换模式"
+
+msgid "Order"
+msgstr "切换顺序"
+
+msgid "On → Off → Transparency"
+msgstr "开 → 关 → 通透"
+
+msgid "Off → On → Transparency"
+msgstr "关 → 开 → 通透"
+
+msgid "Transparency → On → Off"
+msgstr "通透 → 开 → 关"
+
+msgid "On → Transparency → Off"
+msgstr "开 → 通透 → 关"
+
+msgid "Off → Transparency → On"
+msgstr "关 → 通透 → 开"
+
+msgid "Transparency → Off → On"
+msgstr "通透 → 关 → 开"
+
+msgid "Connected devices"
+msgstr "已连接设备"
+
+msgid "Show next connected device"
+msgstr "显示下一台已连接设备"
+
+msgid "More"
+msgstr "更多"

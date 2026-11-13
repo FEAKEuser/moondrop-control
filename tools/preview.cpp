@@ -165,6 +165,8 @@ int main(int argc, char **argv)
             model = Moondrop::FakeHeadset::Pudding;
         } else if (fake.compare(QLatin1String("robin"), Qt::CaseInsensitive) == 0) {
             model = Moondrop::FakeHeadset::Robin;
+        } else if (fake.compare(QLatin1String("rich"), Qt::CaseInsensitive) == 0) {
+            model = Moondrop::FakeHeadset::Rich;
         }
         // the plugin registers org.moondrop.backend itself, so use a private uri
         // and point the pages at it via MOONDROP_BACKEND_URI

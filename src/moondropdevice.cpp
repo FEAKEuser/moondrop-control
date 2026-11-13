@@ -67,10 +67,89 @@ constexpr quint8 CDacSetGain = 2;
 
 constexpr quint8 CMultipointGet = 1;
 constexpr quint8 CMultipointSet = 2;
+constexpr quint8 CMultipointGetTimeout = 3;
+constexpr quint8 CMultipointSetTimeout = 4;
+constexpr quint8 CMultipointDevices = 5;
+constexpr quint8 CMultipointNext = 6;
+constexpr quint8 CMultipointDisconnect = 7;
+constexpr quint8 CMultipointState = 1;
 
 constexpr quint8 CBtAddressGet = 1;
 
 constexpr int UserPresetId = 0x3F;
+
+// Extra settings the official app exposes as separate GAIA features.  Command
+// ids come from the app's V3*Plugin$COMMANDS tables (docs/PROTOCOL.md 13.4).
+struct ExtraSpec
+{
+    const char *id;
+    quint16 feature;
+    quint8 readCommand;
+    quint8 writeCommand;
+    bool boolean; // true: one byte 0/1; false: one byte integer
+    int maximum;
+};
+
+const ExtraSpec kExtraSpecs[] = {
+    {"led", FeatureLed, 1, 2, true, 0},
+    {"spatial", FeatureSpatialAudio, 1, 2, true, 0},
+    {"headTracking", FeatureSpatialAudio, 3, 4, true, 0},
+    {"sensor", FeatureLightSensor, 1, 2, true, 0},
+    {"dybass", FeatureDyBass, 1, 2, true, 0},
+    {"lrReversed", FeatureLrChannel, 1, 2, true, 0},
+    {"powerOffTimeout", FeaturePowerTimeout, 1, 2, false, 255},
+    {"standbyTimeout", FeaturePowerTimeout, 3, 4, false, 255},
+    {"windNoise", FeatureAudioCuration, 23, 24, true, 0},
+    {"autoTransparency", FeatureAudioCuration, 26, 27, true, 0},
+    {"autoTransparencyRelease", FeatureAudioCuration, 28, 29, false, 10},
+    {"acGain", FeatureAudioCuration, 5, 6, false, 255},
+    {"multipointTimeout", FeatureOneBringTwo, 3, 4, false, 255},
+};
+
+QString extraLabel(const QString &id)
+{
+    // literals have to appear here so the string extractor can find them
+    if (id == QLatin1String("led")) {
+        return moondropTr("LED indicator");
+    }
+    if (id == QLatin1String("spatial")) {
+        return moondropTr("Spatial audio");
+    }
+    if (id == QLatin1String("headTracking")) {
+        return moondropTr("Head tracking");
+    }
+    if (id == QLatin1String("sensor")) {
+        return moondropTr("Wearing sensor");
+    }
+    if (id == QLatin1String("dybass")) {
+        return moondropTr("Dynamic bass");
+    }
+    if (id == QLatin1String("lrReversed")) {
+        return moondropTr("Swap left and right");
+    }
+    if (id == QLatin1String("powerOffTimeout")) {
+        return moondropTr("Power off after (minutes)");
+    }
+    if (id == QLatin1String("standbyTimeout")) {
+        return moondropTr("Standby after (minutes)");
+    }
+    if (id == QLatin1String("windNoise")) {
+        return moondropTr("Wind noise reduction");
+    }
+    if (id == QLatin1String("autoTransparency")) {
+        return moondropTr("Auto transparency");
+    }
+    if (id == QLatin1String("autoTransparencyRelease")) {
+        return moondropTr("Auto transparency hold time");
+    }
+    if (id == QLatin1String("acGain")) {
+        return moondropTr("Noise cancelling gain");
+    }
+    if (id == QLatin1String("multipointTimeout")) {
+        return moondropTr("Multipoint timeout (minutes)");
+    }
+    return id;
+}
 
 QString macFromBytes(const QByteArray &payload)
 {
@@ -611,6 +690,12 @@ void MoondropDevice::clearDeviceInfo()
     m_dacGain = -1;
     m_multipointSupported = false;
     m_multipointEnabled = false;
+    m_extras.clear();
+    m_extraAbsent.clear();
+    m_featureVersions.clear();
+    m_ancSwitch.clear();
+    m_mpDevices.clear();
+    m_mpTimeout = -1;
 
     // the parser may hold half a frame from the old link
     m_stream.clear();
@@ -626,6 +711,9 @@ void MoondropDevice::clearDeviceInfo()
     Q_EMIT ancModeChanged();
     Q_EMIT eqChanged();
     Q_EMIT codecChanged();
+    Q_EMIT extraChanged();
+    Q_EMIT ancSwitchChanged();
+    Q_EMIT multipointChanged();
 }
 
 void MoondropDevice::setState(State state)
@@ -1109,6 +1197,9 @@ void MoondropDevice::handleFrame(const Frame &frame)
 
 void MoondropDevice::handleResponse(const Frame &frame)
 {
+    // Feature-gated extras (LED, timeouts, wind noise, ANC switch config, ...)
+    parseExtra(frame.feature(), frame.cmd(), frame.payload);
+
     switch (frame.feature()) {
     case FeatureBasic:
         switch (frame.cmd()) {
@@ -1253,6 +1344,13 @@ void MoondropDevice::handleResponse(const Frame &frame)
             }
             Q_EMIT capabilitiesChanged();
             Q_EMIT codecChanged();
+        } else if (frame.cmd() == CMultipointGetTimeout) {
+            if (!frame.payload.isEmpty()) {
+                m_mpTimeout = int(quint8(frame.payload.at(0)));
+                Q_EMIT multipointChanged();
+            }
+        } else if (frame.cmd() == CMultipointDevices || frame.cmd() == CMultipointNext) {
+            parseMultipointDevice(frame.payload, frame.cmd() == CMultipointDevices);
         }
         break;
 
@@ -1432,10 +1530,14 @@ void MoondropDevice::onRequestTick()
     const Request failed = m_inFlight;
     m_hasInFlight = false;
     Q_EMIT busyChanged();
-    Q_EMIT logMessage(moondropTr("no answer for %1 (feature %2, command %3)")
-                          .arg(failed.what)
-                          .arg(failed.feature)
-                          .arg(failed.command));
+    if (failed.expectReply) {
+        // fire-and-forget commands are not expected to answer, so a missing
+        // reply is not worth a log line
+        Q_EMIT logMessage(moondropTr("no answer for %1 (feature %2, command %3)")
+                              .arg(failed.what)
+                              .arg(failed.feature)
+                              .arg(failed.command));
+    }
     if (failed.onTimeout) {
         failed.onTimeout();
     }
@@ -1535,7 +1637,21 @@ void MoondropDevice::refreshDetails()
     }
     if (hasFeature(FeatureOneBringTwo)) {
         send(FeatureOneBringTwo, CMultipointGet, QByteArray(), false, QStringLiteral("multipoint"));
+        send(FeatureOneBringTwo, CMultipointGetTimeout, QByteArray(), true, QStringLiteral("mp-timeout"));
+        send(FeatureOneBringTwo, CMultipointDevices, QByteArray(), true, QStringLiteral("mp-device"));
     }
+
+    // ANC switch configuration (5 bytes: state, ANC on/off, transparency, order)
+    const quint16 switchFeature = ancSwitchFeature();
+    if (switchFeature != 0) {
+        send(switchFeature, 41, QByteArray(), true, QStringLiteral("anc-switch"));
+    }
+
+    // Notification registration (BASIC/7) is not sent here: the measured EDGE
+    // pushes mode/EQ/battery changes without it, and each registration costs a
+    // fire-and-forget slot on a single-task firmware.  `sendRaw(0, 7, "<feature>")`
+    // is available for devices that do need it.
+    requestExtras();
 
     // noise cancelling exists in three command families: the profile knows which
     // one the model answers, otherwise ask the supported one
@@ -1988,25 +2104,21 @@ void MoondropDevice::parseSupportedFeatures(const QByteArray &payload)
 {
     // The response is a list of (feature id, feature version) pairs.  Some
     // firmwares prefix the list with a status byte, so accept both layouts.
-    QList<int> features;
-    if (!payload.isEmpty() && payload.size() % 2 == 0) {
-        for (int i = 0; i + 1 < payload.size(); i += 2) {
-            features.append(quint8(payload.at(i)));
-        }
-    } else {
-        for (int i = 1; i + 1 < payload.size(); i += 2) {
-            features.append(quint8(payload.at(i)));
-        }
-    }
+    const int start = (!payload.isEmpty() && payload.size() % 2 == 0) ? 0 : 1;
     m_supportedFeatures.clear();
+    m_featureVersions.clear();
     QVariantList list;
-    for (int feature : features) {
+    for (int i = start; i + 1 < payload.size(); i += 2) {
+        const int feature = quint8(payload.at(i));
+        const int version = quint8(payload.at(i + 1));
         if (feature < 0 || feature > 64) {
             continue;
         }
         m_supportedFeatures.insert(quint16(feature));
+        m_featureVersions.insert(quint16(feature), quint8(version));
         QVariantMap entry;
         entry.insert(QStringLiteral("id"), feature);
+        entry.insert(QStringLiteral("version"), version);
         entry.insert(QStringLiteral("name"), Moondrop::featureName(quint16(feature)));
         list.append(entry);
     }
@@ -2279,6 +2391,258 @@ void MoondropDevice::setMultipointEnabled(bool enabled)
     send(FeatureOneBringTwo, CMultipointSet, QByteArray(1, char(enabled ? 1 : 0)), false, QStringLiteral("multipoint-set"));
     m_multipointEnabled = enabled;
     Q_EMIT codecChanged();
+}
+
+// ---------------------------------------------------------------------------
+// Extra settings (official app's feature-gated parameters, PROTOCOL 13.4)
+// ---------------------------------------------------------------------------
+
+QVariantList MoondropDevice::extraSettings() const
+{
+    QVariantList list;
+    for (const ExtraSpec &spec : kExtraSpecs) {
+        const QString id = QString::fromLatin1(spec.id);
+        if (!extraSupported(id)) {
+            continue;
+        }
+        QVariantMap entry;
+        entry.insert(QStringLiteral("id"), id);
+        entry.insert(QStringLiteral("label"), extraLabel(id));
+        entry.insert(QStringLiteral("kind"), spec.boolean ? QStringLiteral("bool") : QStringLiteral("int"));
+        entry.insert(QStringLiteral("value"),
+                     m_extras.value(id, spec.boolean ? QVariant(false) : QVariant(0)));
+        entry.insert(QStringLiteral("min"), 0);
+        entry.insert(QStringLiteral("max"), spec.maximum);
+        list.append(entry);
+    }
+    return list;
+}
+
+bool MoondropDevice::extraSupported(const QString &id) const
+{
+    if (m_extraAbsent.contains(id)) {
+        return false;
+    }
+    // The official app gates these on the feature version from the capability
+    // list: wind noise needs AudioCuration >= 2, auto transparency >= 4.
+    const quint8 acVersion = m_featureVersions.value(FeatureAudioCuration, 0);
+    if (id == QLatin1String("windNoise")) {
+        return hasFeature(FeatureAudioCuration) && acVersion >= 2;
+    }
+    if (id == QLatin1String("autoTransparency") || id == QLatin1String("autoTransparencyRelease")) {
+        return hasFeature(FeatureAudioCuration) && acVersion >= 4;
+    }
+    if (id == QLatin1String("acGain")) {
+        // EDGE (AudioCuration v1) does not answer 8/5 at all (PROTOCOL 5); the
+        // gain commands belong to the later AudioCuration revisions.
+        return hasFeature(FeatureAudioCuration) && acVersion >= 2;
+    }
+    for (const ExtraSpec &spec : kExtraSpecs) {
+        if (id == QLatin1String(spec.id)) {
+            return hasFeature(spec.feature);
+        }
+    }
+    return false;
+}
+
+void MoondropDevice::requestExtras()
+{
+    if (!m_transport->isConnected()) {
+        return;
+    }
+    for (const ExtraSpec &spec : kExtraSpecs) {
+        const QString id = QString::fromLatin1(spec.id);
+        if (!extraSupported(id)) {
+            continue;
+        }
+        // Probe with a short deadline: a firmware that does not implement the
+        // feature is remembered for this connection instead of costing a full
+        // retry on every refresh.
+        Request request;
+        request.feature = spec.feature;
+        request.command = spec.readCommand;
+        request.what = QStringLiteral("extra-%1").arg(id);
+        request.timeoutMs = 600;
+        request.maxAttempts = 1;
+        request.onTimeout = [this, id] {
+            m_extraAbsent.insert(id);
+            Q_EMIT extraChanged();
+        };
+        enqueue(request);
+    }
+}
+
+bool MoondropDevice::parseExtra(quint16 feature, quint8 command, const QByteArray &payload)
+{
+    if (payload.isEmpty()) {
+        return false;
+    }
+    // ANC switch configuration (AudioCuration/ANC V2 41): five bytes.
+    if (command == 41 && (feature == FeatureAudioCuration || feature == FeatureAncV2)
+        && payload.size() >= 5) {
+        m_ancSwitch = payload.left(5);
+        Q_EMIT ancSwitchChanged();
+        return true;
+    }
+    for (const ExtraSpec &spec : kExtraSpecs) {
+        if (spec.feature != feature || spec.readCommand != command) {
+            continue;
+        }
+        const QString id = QString::fromLatin1(spec.id);
+        if (id == QLatin1String("powerOffTimeout") || id == QLatin1String("standbyTimeout")) {
+            // [enabled][minutes]; 0 = never
+            if (payload.size() < 2) {
+                return true;
+            }
+            m_extras.insert(id, quint8(payload.at(0)) != 0 ? int(quint8(payload.at(1))) : 0);
+        } else if (id == QLatin1String("acGain")) {
+            // [mode][feature type][left][right]; the UI writes both ears equally
+            if (payload.size() >= 4) {
+                m_extras.insert(id, int(quint8(payload.at(2))));
+            }
+        } else if (spec.boolean) {
+            m_extras.insert(id, quint8(payload.at(0)) != 0);
+        } else {
+            m_extras.insert(id, int(quint8(payload.at(0))));
+        }
+        Q_EMIT extraChanged();
+        return true;
+    }
+    return false;
+}
+
+void MoondropDevice::writeExtra(const QString &id, const QVariant &value)
+{
+    if (!m_transport->isConnected() || !extraSupported(id)) {
+        return;
+    }
+    const ExtraSpec *spec = nullptr;
+    for (const ExtraSpec &candidate : kExtraSpecs) {
+        if (id == QLatin1String(candidate.id)) {
+            spec = &candidate;
+            break;
+        }
+    }
+    if (!spec) {
+        return;
+    }
+
+    QByteArray payload;
+    if (id == QLatin1String("powerOffTimeout") || id == QLatin1String("standbyTimeout")) {
+        // [enabled][minutes]
+        const int minutes = qBound(0, value.toInt(), 255);
+        payload.append(char(minutes > 0 ? 1 : 0));
+        payload.append(char(minutes));
+    } else if (id == QLatin1String("acGain")) {
+        const int gain = qBound(0, value.toInt(), 255);
+        payload.append(char(gain));
+        payload.append(char(gain));
+    } else if (spec->boolean) {
+        payload.append(char(value.toBool() ? 1 : 0));
+    } else {
+        payload.append(char(qBound(0, value.toInt(), spec->maximum)));
+    }
+
+    prepareUserAction();
+    send(spec->feature, spec->writeCommand, payload, false, QStringLiteral("extra-write"));
+    // optimistic update, then read back (the firmware does not acknowledge these)
+    m_extras.insert(id, value);
+    Q_EMIT extraChanged();
+    send(spec->feature, spec->readCommand, QByteArray(), true, QStringLiteral("extra-verify"));
+}
+
+void MoondropDevice::setExtra(const QString &id, const QVariant &value)
+{
+    writeExtra(id, value);
+}
+
+quint16 MoondropDevice::ancSwitchFeature() const
+{
+    const bool hasAc = hasFeature(FeatureAudioCuration);
+    const bool hasV2 = hasFeature(FeatureAncV2);
+    if (m_profile.ancPath == AncPathAncV2 && hasV2) {
+        return FeatureAncV2;
+    }
+    if (hasAc) {
+        return FeatureAudioCuration;
+    }
+    if (hasV2) {
+        return FeatureAncV2;
+    }
+    return 0;
+}
+
+QVariantMap MoondropDevice::ancSwitchConfig() const
+{
+    QVariantMap map;
+    map.insert(QStringLiteral("present"), m_ancSwitch.size() >= 5);
+    if (m_ancSwitch.size() >= 5) {
+        map.insert(QStringLiteral("state"), quint8(m_ancSwitch.at(0)) != 0);
+        map.insert(QStringLiteral("ancOn"), quint8(m_ancSwitch.at(1)) != 0);
+        map.insert(QStringLiteral("ancOff"), quint8(m_ancSwitch.at(2)) != 0);
+        map.insert(QStringLiteral("transparency"), quint8(m_ancSwitch.at(3)) != 0);
+        map.insert(QStringLiteral("order"), int(quint8(m_ancSwitch.at(4))));
+    }
+    return map;
+}
+
+void MoondropDevice::setAncSwitchConfig(bool state, bool ancOn, bool ancOff, bool transparency, int order)
+{
+    const quint16 feature = ancSwitchFeature();
+    if (feature == 0 || !m_transport->isConnected()) {
+        return;
+    }
+    QByteArray payload;
+    payload.append(char(state ? 1 : 0));
+    payload.append(char(ancOn ? 1 : 0));
+    payload.append(char(ancOff ? 1 : 0));
+    payload.append(char(transparency ? 1 : 0));
+    payload.append(char(qBound(0, order, 5)));
+    prepareUserAction();
+    send(feature, 42, payload, false, QStringLiteral("anc-switch-set"));
+    send(feature, 41, QByteArray(), true, QStringLiteral("anc-switch-verify"));
+}
+
+void MoondropDevice::parseMultipointDevice(const QByteArray &payload, bool first)
+{
+    // [number][6 byte address][name UTF-8]
+    if (payload.size() < 7) {
+        return;
+    }
+    const int number = quint8(payload.at(0));
+    const QString address = macFromBytes(payload.mid(1, 6));
+    const QString name = QString::fromUtf8(payload.mid(7));
+    if (first) {
+        m_mpDevices.clear();
+    }
+    for (int i = 0; i < m_mpDevices.size(); ++i) {
+        if (m_mpDevices.at(i).toMap().value(QStringLiteral("number")).toInt() == number) {
+            m_mpDevices.removeAt(i);
+            break;
+        }
+    }
+    QVariantMap device;
+    device.insert(QStringLiteral("number"), number);
+    device.insert(QStringLiteral("address"), address);
+    device.insert(QStringLiteral("name"), name);
+    m_mpDevices.append(device);
+    Q_EMIT multipointChanged();
+}
+
+void MoondropDevice::requestNextMultipointDevice()
+{
+    send(FeatureOneBringTwo, CMultipointNext, QByteArray(), true, QStringLiteral("mp-next"));
+}
+
+void MoondropDevice::disconnectMultipointDevice(int deviceNumber)
+{
+    if (!m_transport->isConnected()) {
+        return;
+    }
+    send(FeatureOneBringTwo, CMultipointDisconnect, QByteArray(1, char(deviceNumber)), false,
+         QStringLiteral("mp-disconnect"));
+    // refresh the list from the device instead of trusting the local copy
+    send(FeatureOneBringTwo, CMultipointDevices, QByteArray(), true, QStringLiteral("mp-refresh"));
 }
 
 QString MoondropDevice::presetName(int presetId) const

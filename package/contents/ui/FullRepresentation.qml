@@ -98,6 +98,10 @@ PlasmaExtras.Representation {
                 text: i18n("Info")
                 icon.name: "help-about"
             }
+            PlasmaComponents3.TabButton {
+                text: i18n("More")
+                icon.name: "preferences-other"
+            }
         }
 
         StackLayout {
@@ -109,6 +113,7 @@ PlasmaExtras.Representation {
             EqPage {}
             SoundPage {}
             InfoPage {}
+            ExtrasPage {}
         }
 
         PlasmaComponents3.Label {
