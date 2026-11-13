@@ -63,7 +63,7 @@ PlasmaComponents3.ScrollView {
                         valueRole: "id"
                         model: modelData.options
                         currentIndex: {
-                            const options = modelData.options
+                            const options = modelData.options || []
                             for (let i = 0; i < options.length; ++i) {
                                 if (options[i].id === modelData.value) {
                                     return i

@@ -2675,6 +2675,9 @@ QVariantList MoondropDevice::extraSettings() const
                      m_extras.value(id, spec.boolean ? QVariant(false) : QVariant(0)));
         entry.insert(QStringLiteral("min"), 0);
         entry.insert(QStringLiteral("max"), spec.maximum);
+        // always present: QML bindings are evaluated even for rows that are
+        // hidden by their kind, and reading an undefined list logs a TypeError
+        entry.insert(QStringLiteral("options"), QVariantList());
         if (id == QLatin1String("autoTransparencyRelease")) {
             // AutoTransparencyReleaseTime enum values (PROTOCOL 13.5)
             entry.insert(QStringLiteral("kind"), QStringLiteral("enum"));

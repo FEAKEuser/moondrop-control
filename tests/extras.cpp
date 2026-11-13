@@ -244,6 +244,18 @@ int main(int argc, char **argv)
         }
     }
 
+    // --- every entry carries the array the QML bindings read ----------------
+    {
+        bool allHaveOptions = true;
+        for (const QVariant &item : device.extraSettings()) {
+            if (!item.toMap().contains(QStringLiteral("options"))) {
+                allHaveOptions = false;
+                break;
+            }
+        }
+        check(allHaveOptions, QStringLiteral("each extra setting has an options list"));
+    }
+
     // --- error frames must not be stored as values -------------------------
     {
         FakeHeadset *rejecting = new FakeHeadset(FakeHeadset::Rich);
