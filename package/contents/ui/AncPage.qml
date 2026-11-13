@@ -13,7 +13,7 @@ PlasmaComponents3.ScrollView {
     // MOONDROP firmware uses bit style codes for the AudioCuration family
     readonly property var modes: [
         { mode: 0, label: i18n("Off"), icon: "audio-volume-muted-symbolic" },
-        { mode: 1, label: i18n("Noise cancelling"), icon: "audio-volume-low-symbolic" },
+        { mode: 1, label: i18n("Noise cancelling"), icon: "noisereduction-symbolic" },
         { mode: 2, label: i18n("Transparency"), icon: "audio-volume-high-symbolic" }
     ]
 

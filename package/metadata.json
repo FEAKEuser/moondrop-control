@@ -13,7 +13,7 @@
         "License": "GPL-3.0-or-later",
         "Name": "Moondrop Control",
         "Name[zh_CN]": "水月雨耳机控制",
-        "Version": "0.3.0",
+        "Version": "0.3.1",
         "Website": "https://github.com/FEAKEuser/moondrop-control",
         "BugReportUrl": "https://github.com/FEAKEuser/moondrop-control/issues"
     },

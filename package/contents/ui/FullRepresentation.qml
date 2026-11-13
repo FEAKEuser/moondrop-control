@@ -22,6 +22,19 @@ PlasmaExtras.Representation {
     Layout.preferredWidth: implicitWidth
     Layout.preferredHeight: implicitHeight
 
+    // The first tab mirrors the current noise-cancelling state instead of a
+    // fixed glyph: crossed speaker = off, the dedicated noise-reduction icon
+    // = cancelling, speaker with waves = transparency.
+    readonly property string ancTabIcon: {
+        if (Moondrop.ancMode === 0) {
+            return "audio-volume-muted-symbolic"
+        }
+        if (Moondrop.ancMode === 2) {
+            return "audio-volume-high-symbolic"
+        }
+        return "noisereduction-symbolic"
+    }
+
     header: PlasmaExtras.PlasmoidHeading {
         RowLayout {
             anchors.fill: parent
@@ -88,7 +101,7 @@ PlasmaExtras.Representation {
             // panel width; abbreviations are explained by the page headings.
             PlasmaComponents3.TabButton {
                 text: i18n("Noise")
-                icon.name: "audio-volume-muted-symbolic"
+                icon.name: fullRep.ancTabIcon
                 display: AbstractButton.TextUnderIcon
             }
             PlasmaComponents3.TabButton {
