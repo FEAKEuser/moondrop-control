@@ -303,7 +303,17 @@ moondrop-cli peq flat                   # 拉平
 moondrop-cli battery
 moondrop-cli ldac on
 moondrop-cli raw 5 5 0004               # 任意 GAIA 命令：feature command hexpayload
+moondrop-cli extra list                 # 额外设置（LED、超时、风噪、降噪增益…）
+moondrop-cli extra led on               # 写一个额外设置
+moondrop-cli anc-switch                 # 读按键循环配置
+moondrop-cli anc-switch 1 1 1 1 1       # 写：state on off tp order
+moondrop-cli mp devices                 # 多点：已连接设备 + 超时
+moondrop-cli mp disconnect 1            # 断开 #1
+moondrop-cli gesture list               # 手势 × 场景 → 动作
+moondrop-cli gesture set 0 0 0 2        # 手势 0 / 触摸板 0 / 场景 0 → 动作 2
+moondrop-cli gesture reset
 MOONDROP_DEBUG=1 moondrop-cli info      # 打印收发帧
+MOONDROP_FAKE=rich moondrop-cli ...     # 用 Rich 假耳机跑上面这些（无需真机）
 ```
 
 `moondrop-cli --address XX:XX:.. --channel N` 可临时指定设备与通道。
