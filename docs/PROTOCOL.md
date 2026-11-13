@@ -2,9 +2,10 @@
 
 本文件记录逆向出来的协议细节。除非某一节另行注明，命令与字节格式都是**在本机
 MOONDROP EDGE（固件 1.4.0）上逐条实测确认**的；第 11 节是同一台机器上对
-**Moondrop Nekocake（猫饼，固件 1.0.0）**的实测记录。
-**这两台是本项目唯一接过的真机**，文档里其余机型（Robin / Pudding / Space Travel）
-的内容均摘自上游公开资料，并未在本项目验证过。
+**Moondrop Nekocake（猫饼，固件 1.0.0）**的实测记录。第 12、13 节来自**官方 MOONDROP
+App**（产品目录 + Kotlin 层反编译），属于「App 这样做」的事实的记录，不等于本项目在真机
+验证过。**EDGE 与猫饼是本项目唯一接过的真机**，其余机型（Robin / Pudding / Space Travel）
+的内容摘自上游公开资料或 App 分析。
 所有命令均可用 `moondrop-cli raw FEATURE COMMAND [HEX]` 复现。
 
 ---
@@ -15,6 +16,7 @@ MOONDROP EDGE（固件 1.4.0）上逐条实测确认**的；第 11 节是同一�
 * **通道号**：EDGE 上是 **channel 1**（不是资料常说的 16）
   * Space Travel 用 16；EDGE / 部分新机型用 1
   * 因此本程序按 «上次成功 → 1 → 16 → 2..30» 顺序自动探测
+  * 官方 App 不扫描：它用 SDP 查 UUID 再让系统解析通道（失败兜底通道 1），见第 13.1 节
 * 通道正确但无人应答时（例如连到 A2DP 端口）连接会成功但没有数据；本程序以
   「首帧 GAIA 响应」作为通道判定依据
 * 同一时刻只能有一个 RFCOMM 连接，第二个连接返回 `EBUSY`（同一副耳机上所有通道共享
@@ -357,3 +359,220 @@ curl -s https://cdn-service.moondroplab.tech/api/v1/products/all | jq -r '
 rea identify-flutter-build moondrop-android-release.apk
 rea inspect-dart-aot moondrop-android-release.apk   # 预期：unified snapshot 不受支持
 ```
+
+## 13. 官方 App 的控制栈：连接流程与命令表（反编译 Kotlin 层）
+
+第 12 节只拿到了机型事实。这一节是**控制方法本身**：官方 App 的蓝牙栈其实在 Kotlin 里
+（`classes.dex`，可直接反编译），Dart 只是通过 MethodChannel 调用。反编译用的工具是
+`androguard`（DAD 反编译器 + smali 清单）；blutter 在本 APK 上失败，因为 Dart 3.14 的
+unified snapshot（见第 12 节）。
+
+反编译产物里的关键类（包名即原始路径，R8 没有改这些类的名字）：
+
+| 类 | 作用 |
+| --- | --- |
+| `com.qualcomm.qti.gaiaclient.core.bluetooth.client.rfcomm.RfcommClient` | GAIA 的 SPP 传输 |
+| `...client.rfcomm.uuids.UuidFetcher` / `UUIDReceiver` | 连接前先用 SDP 查 UUID |
+| `com.qualcomm.qti.gaiaclient.core.gaia.qtil.*` | GAIA 各 feature 的插件与命令表 |
+| `...native.handlers.AncHandler` / `AncV2Handler` / `EqHandler` / `DeviceInfoHandler` | App 的 MethodChannel 处理层 |
+| `...native.factoryspp.FactorySppClient` / `FactorySppProtocol` | 工厂 SPP（产测）通道 |
+| `...native.ble.source.*` | 蓝牙低功耗（BLE）9ECA 私有协议（另一条通道） |
+| `com.airoha.sdk` | Airoha 官方 SDK（SPP） |
+| `com.moondroplab.moondrop.moondrop_app.GaiaClientApplication` | 内嵌的 QTI GAIA Client（Qualcomm 开源） |
+
+### 13.1 连接流程（GAIA/SPP，即本项目使用的那条）
+
+固定 UUID：
+
+```
+SPP           00001101-0000-1000-8000-00805F9B34FB
+GAIA_LEGACY   00001107-D102-11E1-9B23-00025B00A5A5
+```
+
+`RfcommClient.connect()` 的实际步骤：
+
+1. `BluetoothAdapter.cancelDiscovery()`；
+2. 先 `fetchUuidsWithSdp()`（`UuidFetcher`），等 `ACTION_UUID` 广播拿到设备的 SDP 服务列表；
+3. 选 UUID：列表里有 SPP → 用 SPP；否则有 `GAIA_LEGACY` → 用它；都没有 → 仍用 SPP；
+4. `createInsecureRfcommSocketToServiceRecord(uuid)`（**由 SDP 解析通道号**，不扫描通道）；
+5. 若创建 socket 抛异常，退回反射 `createRfcommSocket(1)`（**通道 1**）；
+6. 只接受 `BluetoothDevice.getType()` 为 1（CLASSIC）或 3（DUAL）的设备；
+7. 连接在后台线程 `ConnectionThread` 里跑，`connect()` 成功后启动收发线程；
+8. 连接类型（CLASSIC / LOW_ENERGY）来自 App 服务端/调用方给的 `transportType`，
+   默认 CLASSIC；`LOW_ENERGY` 走 GAIA over GATT。
+
+**对本项目的意义**：Linux 上本项目没有 SDP 客户端（不依赖 `libbluetooth`），所以仍是
+「上次成功 → 1 → 16 → 2..30」串行扫描；但 App 的兜底顺序说明 **通道 1 是常见值**，
+而且真正的通道号应由 SDP 查询得到（BlueZ 的 `org.bluez.Device1.UUIDs` 只给 UUID，不给通道）。
+
+### 13.2 GAIA 帧与 vendor id（与第 2 节互相印证）
+
+`QTILVendorIDs.QTIL_V3_VENDOR_ID = 29`（0x001D），正是实测 EDGE 帧里的 `00 1d`；
+`V3PacketType` 的取值 0..3 与第 2 节的 `type` 字段一致（COMMAND/NOTIFICATION/RESPONSE/ERROR）。
+也就是说本项目用的帧格式就是 GAIA v3（QTIL vendor）。
+
+### 13.3 Feature 编号（`QTILFeature`，与实测能力位图逐项吻合）
+
+```
+0 BASIC   1 EARBUD   2 ANC(V1)   3 VOICE_UI   4 DEBUG   5 MUSIC_PROCESSING
+6 UPGRADE   7 HANDSET_SERVICE   8 AUDIO_CURATION   9 EARBUD_FIT   10 VOICE_PROCESSING
+11 GESTURE_CONFIGURATION   12 STATISTICS   13 BATTERY   14 VOICE   15 DAC_GAIN
+16 CODEC_TYPE   17 LIGHT_SENSOR   18 SPATIAL_AUDIO   19 LED
+20 ONEBRINGTWO   21 BT_ADDRESS   32 ANC_V2
+```
+
+（`32` 不在 QTI 的枚举里，是水月雨固件自己的 ANC V2，编号沿用实测。）
+
+### 13.4 命令表（`V3*Plugin$COMMANDS` 的常量，逐条来自反编译）
+
+| Feature | Cmd | 方向 | 含义 |
+| --- | --- | --- | --- |
+| 0 BASIC | 0 | 读 | GAIA 版本 |
+| 0 | 1 / 2 | 读 | 能力列表 / 下一页 |
+| 0 | 3 | 读 | 序列号 |
+| 0 | 4 | 读 | 型号（Variant） |
+| 0 | 5 | 读 | 固件版本 |
+| 0 | 7 / 8 | 写 | 订阅 / 取消通知 |
+| 0 | 12 / 13 | 读写 | 传输信息 / 传输参数（含最大 payload） |
+| 0 | 16 | 读 | 设备自身蓝牙地址 |
+| 0 | 18 / 19 | 读 | 耳机颜色 / 语言 |
+| 0 | 20 / 21 | 读 | 左耳 SN / 右耳 SN |
+| 0 | 22 | 读 | TWS 连接状态 |
+| 1 EARBUD | 0 / 1 | 读 | 主耳是哪只 / 副耳序列号 |
+| 1 | 2 / 3 | 读/写 | 当前按钮动作 / 设置按钮动作 |
+| 2 ANC(V1) | 1 / 2 | 读/写 | ANC 开关 |
+| 2 | 3 / 4 | 读 | ANC 模式数 / 当前模式 |
+| 2 | 5 | 写 | 设置 ANC 模式 |
+| 2 | 6 / 7 | 读写 | 通透增益 |
+| 5 MUSIC_PROCESSING | 0 | 读 | EQ 开关状态 |
+| 5 | 1 / 2 / 3 | 读/读/写 | 预设列表 / 当前预设 / 选择预设 |
+| 5 | 4 | 读 | 用户 EQ 段数 |
+| 5 | 5 / 6 | 读/写 | 用户 EQ（频段 7 字节 × N，见 13.5） |
+| 5 | 7 / 8 | 写 | 保存到存储 / 设置 NV ID |
+| 8 AUDIO_CURATION | 2 / 3 | 读 | 模式数 / 当前模式 |
+| 8 | 4 | 写 | 设置模式 |
+| 8 | 41 / 42 | 读/写 | ANC 开关配置（5 字节，见 13.5） |
+| 8 | 22–24 | 读写 | 风噪检测 |
+| 8 | 25–29 | 读写 | 自动通透 |
+| 8 | 30–33 | 读写 | 啸叫检测 / 反馈增益 |
+| 8 | 34–37 | 读写 | 噪声识别 |
+| 8 | 38–40 | 读写 | 恶劣声学 |
+| 13 BATTERY | 0 | 读 | 支持的电池 id |
+| 13 | 1 | 读 | 电量（请求 payload = 电池 id 列表） |
+| 15 DAC_GAIN | 1 / 2 | 读/写 | 增益档位 |
+| 16 CODEC_TYPE | 1 / 3 | 读/写 | LC3 |
+| 16 | 2 / 4 | 读/写 | LDAC |
+| 16 | 5 / 6 | 读/写 | LHDC |
+| 20 ONEBRINGTWO | 1 / 2 | 读/写 | 多点开关 |
+| 20 | 3 / 4 | 读/写 | 多点超时 |
+| 20 | 5 / 6 | 读 | 当前多点设备 / 下一页 |
+| 20 | 7 | 写 | 断开某台多点设备 |
+| 21 BT_ADDRESS | 1 / 2 | 读/写 | 蓝牙地址 |
+| 32 ANC_V2 | 3 / 4 | 读/写 | 当前模式（0..5 与 UI 一一对应） |
+| 32 | 41 / 42 | 读/写 | ANC 开关配置（字节格式同 8/41） |
+
+### 13.5 参数编码（反编译中确认）
+
+**用户 EQ 频段记录（7 字节）**（`BandInfo`）：
+
+| 偏移 | 类型 | 含义 |
+| --- | --- | --- |
+| 0..1 | uint16 | 频率 Hz |
+| 2..3 | uint16 | Q × **4096** |
+| 4 | uint8 | 滤波器类型，见下表 |
+| 5..6 | int16 | 增益 dB × **60** |
+
+滤波器类型字节（`Filter`）：0 BYPASS、1 LOW_PASS、2 HIGH_PASS、3 ALL_PASS、4 LOW_SHELF、
+5 HIGH_SHELF、6 TILT、7–12 为各自的第二组、13 PARAMETRIC_EQUALIZER。
+EDGE 实测恒为 0，写成 0 可以正确回环。
+
+读 payload（`5/5`）：4 字节头 `[start][end][00][00]` + 每条 7 字节；
+App 的判定函数 `isBluetrumConfigurationPacket` 用 `len >= 4 + (end-start+1)*7` 检查。
+写 payload（`5/6`，App 的 `setUserSetGains`）：长度 `2 + 7N`，头 2 字节 `[start][end]`，
+单段时偏移 2/4/6/7 正好是那 7 字节；但多段时 Kotlin 里用的是 `2+2i`/`4+2i`/`6+i`/`7+2i`
+（应为 `+7i`），会互相覆盖——这段代码在本项目看来是错的，或以「一次只写一段」的方式使用。
+EDGE 实测接受 4 字节头、记录从 4 开始的写法（39 字节）并原样回读，本项目按实测走。
+
+**电池 id**（`Battery`）：0 SINGLE_DEVICE（整机）、1 LEFT、2 RIGHT、3 CHARGER_CASE。
+与第 7 节的实测一致。
+
+**ANC 开关配置（8/41、32/41）**：5 字节
+`[STATE][ANC_ON][ANC_OFF][TP][ORDER]`（App 的 `SWITCH_CONF_FIELDS`）。
+STATE = 0/1（`ACActions`）；后三个是「该模式是否纳入切换」；ORDER 取值 0..5
+（`ACOrders`：0 ON_OFF_TP、1 OFF_ON_TP、2 TP_ON_OFF、3 ON_TP_OFF、4 OFF_TP_ON、5 TP_OFF_ON）。
+EDGE 实测返回 `01 01 01 01 01` → STATE=开，三种模式都参与，顺序 OFF_ON_TP。
+
+**AUDIO_CURATION 当前模式（8/3）**：payload 是
+`[value][featureType][adaptationSupport][gainSupport][(howlingSupport)]`（`Mode` 类）。
+featureType：1 STATIC_ANC、2 LEAKTHROUGH_ANC、3 ADAPTIVE_ANC、4 ADAPTIVE_LEAKTHROUGH_ANC。
+EDGE 返回 `[mode][01][00][00]`，即 STATIC_ANC。
+
+**ANC V2 模式（32/3、32/4）**：0=关、1=降噪、2=通透、3=抗风噪、4=自适应、5=Live
+（`AncV2Handler` 的常量，读写同值，与第 6 节实测一致）。
+
+**预设 id**（`PreSetType`）：0 = **OFF（均衡器关闭）**，63（0x3F）= 用户 PEQ，
+其余（1..62）= 出厂预设。设备返回的预设列表形如 `06 00 01 02 03 04 3f`，
+即「关 + 4 个出厂预设 + 用户 PEQ」。本项目默认把 id 0 显示成 “Standard”，
+这一点未在真机上核对名称，仅记录 App 的语义。
+
+### 13.6 另一条通道：BLE 9ECA 私有协议（`native/ble/source`）
+
+部分机型（`BleSourceSwitch*`）还可以走 BLE GATT：
+
+```
+Service        9ECA0000-7F3A-4F32-9A38-A91B2C6E0100
+Command        9ECA0001-...
+Notification   9ECA0003-...
+CCCD           00002902-0000-1000-8000-00805F9B34FB
+```
+
+请求帧（`BleSourceSwitchFrames.buildCommand`）：`A5 01 <cmd> <len> <payload…>`；
+`A5` 为 magic，`01` 为协议版本，`len` ≤ 255。命令 id：
+
+```
+0  GET_FW_VERSION        1  GET_AUDIO_SOURCE     2  SET_AUDIO_SOURCE
+3  GET_CAPABILITY        4  SET_POWER_OFF        5  GET_DEVICE_VOLUME
+6  SET_DEVICE_VOLUME     7  GET_PRESET_EQ         8  SET_PRESET_EQ
+9  GET_PEQ_CONFIG        10 SET_PEQ_PREGAIN      11 GET_PEQ_POINT
+12 SET_PEQ_POINT         13 COMMIT_PEQ           14 GET_MIC_GAIN
+15 SET_MIC_GAIN          17 GET_EARBUD_COLOR     19 GET_EARBUD_LANGUAGE
+21 GET_EARBUD_SN_LEFT    23 GET_EARBUD_SN_RIGHT
+```
+
+（枚举 ordinal 与线上 id 不一致：颜色/语言/SN 这几条线上 id 分别是 17/19/21/23。）
+连接时请求 MTU 247，写 CCCD 订阅通知，之后按通知回包解析。
+这一路没有 ANC 命令，属于「音频源切换 / 固件信息 / EQ」类控制，本项目未实现。
+
+### 13.7 工厂 SPP 帧（产测通道，`FactorySppProtocol`）
+
+```
+55 AA 43 58 57        5 字节头：'U' 0xAA 'C' 'X' 'W'（不是 ASCII 字符串，按字节匹配）
+00                    1 字节 0
+LL LL                 小端 uint16：payload 长度 + 4
+TT TT                 小端 uint16：命令类型（21 = SET_SN，22 = GET_SN）
+PP PP                 小端 uint16：payload 长度
+payload...
+CC CC                 小端 uint16：CRC16-IBM（多项式 0x8005，从帧头算到 payload 末尾）
+```
+
+帧总长 = payload + 14。连接方式：标准 SPP UUID + `createRfcommSocketToServiceRecord`。
+
+### 13.8 Airoha（`com.airoha.sdk`）
+
+Airoha 机型（目录里的 `airoha` 模块）用厂商 SDK 走 SPP（`ConnectionProtocol.PROTOCOL_SPP`，
+标准 SPP UUID），命令由 SDK 内部定义（`AirohaMMI`、`AirohaANC`、`AirohaSPP` 等），
+本项目**没有解析**这些命令；APK 里的 `libnative-anc*.so`/`libnative-peq.so` 只是离线计算
+ANC 系数与 PEQ 频响，不参与在线控制。
+
+### 13.9 复现
+
+```bash
+# 反编译（本机实测；DAD 输出保留原始类名）
+pip install androguard                     # 或 venv
+androguard decompile -i classes.dex -o out -l '(Lcom/qualcomm/qti/gaiaclient/|Lcom/airoha/|Lcom/moondroplab/)'
+# 然后看 out/com/qualcomm/qti/gaiaclient/... 与 out/com/moondroplab/...
+```
+
+> blutter（编译同版本 Dart VM 反序列化）在本 APK 上失败：
+> `extract_dart_info.py` 找不到 `_kDartVmSnapshotData`（Dart 3.14 用 unified
+> `_kDartSnapshotData/_Text`）。Kotlin 层可读，所以控制协议不需要动 Dart。

@@ -55,6 +55,15 @@ Space Travel 的帧格式），以及官方 App 产品目录里的机型事实�
   充电盒的 `0%` 则是真实状态；整机单值机型 `0%` 合法。
 * 降噪指令族（AudioCuration / ANC V2 / ANC V1）可自动探测，档案只是把它变成「先问对的那个」，
   因此新型号即使不在表里也能工作。
+* **连接方式与命令表**：官方 App 的蓝牙栈在 Kotlin 里（内嵌 QTI GAIA Client）。它连接时先用
+  SDP 查服务 UUID（`00001101` = SPP、`00001107-…` = GAIA legacy），再用
+  `createInsecureRfcommSocketToServiceRecord` 让系统解析通道号，失败才退回固定通道 1；
+  本项目不依赖 `libbluetooth`，所以仍按「上次成功 → 1 → 16 → 2..30」串行扫描（App 的兜底
+  也说明通道 1 常见）。完整的 feature/命令/参数编码（电池 id、滤波器类型字节、ANC 开关配置、
+  预设 id 语义）见 [`docs/PROTOCOL.md`](docs/PROTOCOL.md) 第 13 节，术语与本项目实现一致。
+* 目录里的 `bluetrum` 机型在 App 里走 GAIA（CLASSIC/SPP 或 BLE）；`qualcomm` 机型也走同一套
+  GAIA 库；`airoha` 机型走 Airoha SDK（SPP）；`jieli` 机型另有私有命令族。本项目目前只实现
+  GAIA 这一条，因此除 EDGE/猫饼外的机型仍只能靠能力探测。
 
 ---
 
@@ -362,9 +371,14 @@ packaging/                   Fedora spec、Arch PKGBUILD、Debian、AppStream
   读写的报文头是「首段..末段」，每段仍 7 字节，因此 5 段 39 字节、10 段 74 字节。
   增益/Q 的滑杆范围取自档案（官方目录里给出的值，默认 −12…+3 dB、Q 0.1…10）。
 * PEQ 频段滤波器类型字节（每条 6 字节处）EDGE 固件恒为 0，界面暂不暴露类型选择。
-* 官方 App 产品目录只提供机型事实（模块、电量布局、EQ 段数与范围）；`qualcomm` / `jieli` /
-  `airoha` 模块的命令编号本项目**没有**从 App 里解出来（Dart 是 AOT 编译，没有可读的符号表），
-  这些机型仍靠能力探测，不保证可用。
+  App 的滤波器类型表（0 旁路、1 低通、2 高通、4 低架、5 高架、13 参数均衡）已记录在
+  `docs/PROTOCOL.md` 第 13.5 节；真机上写这些值会怎样还没验证。
+* GAIA 的 feature/命令编号已经从 App 的 Kotlin 层解出来了（第 13 节，与本项目实现逐项一致）；
+  仍然不清楚的是 `jieli` / `airoha` 的私有命令族，以及 10 段机型的 EQ 分块读写：
+  官方 App 把用户 EQ 按 payload 上限分块（`[start][end]`），本项目一次读完；
+  写入格式在 App 里是 2 字节头，EDGE 实测接受 4 字节头，10 段机型尚未上机验证。
+* 官方 App 把预设 id `0` 当作 **OFF（均衡器关闭）**（`PreSetType`），`0x3F` 是用户 PEQ；
+  本项目默认仍把 id `0` 显示成 “Standard”（名称可配置）——名称语义尚未在真机上核对。
 * 只实现了只读的“设备信息 / 电量 / 能力”，未实现固件升级（OTA）与触控手势配置。
 * 猫饼的降噪**无法由软件控制**（固件没有对应的 GAIA 命令，只能长按耳机切换），
   且电量必须经 BlueZ 读取；这是设备限制，不是缺陷。
@@ -442,10 +456,14 @@ python3 tools/gaia.py listen 10                  # 只监听通知
 
 同样重要的其它资料：
 
+* **官方 MOONDROP App 的 Kotlin 层**（`classes.dex`，2026-11-13 版）：内嵌 QTI GAIA Client、
+  工厂 SPP、Bluetrum BLE 9ECA、Airoha SDK。连接流程（SDP UUID → 不安全的 RFCOMM → 通道 1
+  兜底）与 GAIA 的 feature/命令/参数编码都出自这里；反编译方法与逐项对照见
+  [`docs/PROTOCOL.md`](docs/PROTOCOL.md) 第 13 节。
 * **官方 MOONDROP App 的产品目录**（`https://cdn-service.moondroplab.tech/api/v1/products/all`，
   2026-11-13 抓取，109 条）：机型属于哪个命令模块、是否 TWS、EQ 段数与增益/Q 范围。
-  逆向过程与对照表见 [`docs/PROTOCOL.md`](docs/PROTOCOL.md) 第 12 节；本项目只用其中的
-  机型事实，没有复制 App 的代码或帧常量。
+  逆向过程与对照表见 [`docs/PROTOCOL.md`](docs/PROTOCOL.md) 第 12 节；本项目只采用其中的
+  事实性数据（机型分类、命令编号、参数编码），没有复制 App 的代码。
 
 * [bqj6666/FxxkMoondrop](https://github.com/bqj6666/FxxkMoondrop)（GPL-3.0）
   —— 从官方 App 提取的完整 Feature/Command 表与 ANC 路径选择逻辑
