@@ -269,6 +269,10 @@ OCS 提供者下载并安装 → 在真实 plasmashell 里加载」。依赖：`
 | Arch / AUR | `packaging/arch/PKGBUILD`（`makepkg -si`，或提交到 AUR） | ✅ 容器内 `makepkg` 成功，产出 `.pkg.tar.zst` |
 | Debian / Ubuntu | `packaging/debian/`（`./packaging/debian/make-deb.sh`） | ✅ `dpkg-buildpackage` 成功，产物依赖正确 |
 
+发布 tag 时，GitHub Actions 会在各自的发行版容器里自动构建 RPM、deb 和 Arch 包，
+连同 Qt 6.8 基线的 `.plasmoid` 与源码 tarball 一起附到 Release；`workflow_dispatch`
+可以在不发版的情况下单独跑这些任务（见 `.github/workflows/build.yml`）。
+
 自己构建：
 
 ```bash
