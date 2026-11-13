@@ -748,3 +748,9 @@ msgstr "触摸板 %1"
 
 msgid "Action %1"
 msgstr "动作 %1"
+
+msgid "Measured on a real device (firmware 1.0.0)"
+msgstr "在本项目真机上实测（固件 1.0.0）"
+
+msgid "Some firmware cannot turn this off; the switch returns to the device's value."
+msgstr "部分固件无法关闭此开关，控件会回到设备上报的值。"

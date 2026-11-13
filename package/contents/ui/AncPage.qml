@@ -113,6 +113,10 @@ PlasmaComponents3.ScrollView {
                 text: i18n("Cycle modes with the headphone button")
                 checked: Moondrop.ancSwitchConfig.state === true
                 onToggled: page.applySwitch({ state: checked })
+                PlasmaComponents3.ToolTip {
+                    // measured on EDGE: the firmware ignores writing 0 here
+                    text: i18n("Some firmware cannot turn this off; the switch returns to the device's value.")
+                }
             }
 
             ColumnLayout {

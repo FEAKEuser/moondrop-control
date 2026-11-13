@@ -222,6 +222,28 @@ int main(int argc, char **argv)
     check(waitFor([&] { return gestureAction(device, 0, 0, 0).toInt() == 0; }, 6000),
           QStringLiteral("reset restores the default gesture action"));
 
+    // --- PEQ clamping: out-of-range input is written clamped and verifies ---
+    {
+        QVariantList bands;
+        for (int i = 0; i < 5; ++i) {
+            QVariantMap band;
+            band.insert(QStringLiteral("frequency"), 1000);
+            band.insert(QStringLiteral("gain"), 100.0);
+            band.insert(QStringLiteral("q"), 0.0);
+            band.insert(QStringLiteral("type"), 0);
+            bands.append(band);
+        }
+        device.applyUserEq(bands, false);
+        check(waitFor([&] { return !device.busy(); }), QStringLiteral("clamped PEQ write finishes"));
+        check(device.pendingBands().isEmpty(),
+              QStringLiteral("clamped PEQ write is confirmed (not reported as rejected)"));
+        if (!device.bands().isEmpty()) {
+            check(qAbs(device.bands().first().toMap().value(QStringLiteral("gain")).toDouble()
+                       - device.eqGainMax()) < 0.02,
+                  QStringLiteral("the written gain is clamped to the profile maximum"));
+        }
+    }
+
     std::printf(failures == 0 ? "\nall checks passed\n" : "\n%d check(s) failed\n", failures);
     return failures == 0 ? 0 : 1;
 }

@@ -424,7 +424,7 @@ GAIA_LEGACY   00001107-D102-11E1-9B23-00025B00A5A5
 6 UPGRADE   7 HANDSET_SERVICE   8 AUDIO_CURATION   9 EARBUD_FIT   10 VOICE_PROCESSING
 11 GESTURE_CONFIGURATION   12 STATISTICS   13 BATTERY   14 VOICE   15 DAC_GAIN
 16 CODEC_TYPE   17 LIGHT_SENSOR   18 SPATIAL_AUDIO   19 LED
-20 ONEBRINGTWO   21 BT_ADDRESS   32 ANC_V2
+20 ONEBRINGTWO   21 BT_ADDRESS   31 TOUCHV4   32 ANC_V2
 ```
 
 （`32` 不在 QTI 的枚举里，是水月雨固件自己的 ANC V2，编号沿用实测。）
@@ -477,6 +477,28 @@ GAIA_LEGACY   00001107-D102-11E1-9B23-00025B00A5A5
 | 32 ANC_V2 | 3 / 4 | 读/写 | 当前模式（0..5 与 UI 一一对应） |
 | 32 | 41 / 42 | 读/写 | ANC 开关配置（字节格式同 8/41） |
 
+额外设置逐条命令（同上，`V3*Plugin$COMMANDS`，2026-11-13 复核；`8` 的版本门槛见下）：
+
+| Feature | 读 / 写 | 含义与 payload |
+| --- | --- | --- |
+| 0 BASIC | 7 / 8 | 订阅 / 取消通知；payload = 单个 feature id。EDGE 实测回空响应 |
+| 8 AUDIO_CURATION | 5 / 6 | ANC 增益（见 13.5） |
+| 8 | 23 / 24 | 风噪：读 2 字节（左/右检测状态 0/1），写 1 字节 State(0/1) |
+| 8 | 26 / 27 | 自动通透 State(0/1) |
+| 8 | 28 / 29 | 自动通透保持时间，枚举 0..3（见 13.5） |
+| 17 LIGHT_SENSOR | 1 / 2 | 0/1 |
+| 18 SPATIAL_AUDIO | 1 / 2 | 空间音频 0/1 |
+| 18 | 3 / 4 | 头部跟踪 0/1 |
+| 19 LED | 1 / 2 | 0/1 |
+| 20 ONEBRINGTWO | 3 / 4 | 多点超时（分钟，1 字节） |
+| 25 POWER_TIMEOUT | 1 / 2 | 关机超时 `[enabled][minutes]` |
+| 25 | 3 / 4 | 待机超时，同格式 |
+| 27 DYBASS | 1 / 2 | 0/1 |
+| 30 LR_CHANNEL | 1 / 2 | 左右声道互换 0/1 |
+
+版本门槛（`V3AudioCurationPlugin.fetchInfo` 的 `getVersion()>=N` 判断）：风噪 ≥ 2、自动通透与保持时间 ≥ 4。
+EDGE 的 AudioCuration 版本是 1，因此这些命令在它上面全部无响应（实测）。
+
 ### 13.5 参数编码（反编译中确认）
 
 **用户 EQ 频段记录（7 字节）**（`BandInfo`）：
@@ -501,6 +523,17 @@ EDGE 实测接受 4 字节头、记录从 4 开始的写法（39 字节）并原
 
 **电池 id**（`Battery`）：0 SINGLE_DEVICE（整机）、1 LEFT、2 RIGHT、3 CHARGER_CASE。
 与第 7 节的实测一致。
+
+**AudioCuration 增益**（`Gain`）：读（`8/5`）4 字节 `[mode][feature type][left][right]`；
+写（`8/6`）2 字节 `[left][right]`（`Gain.getSetterBytes`），范围 0..255。
+
+**自动通透保持时间**（`AutoTransparencyReleaseTime`）：0 NO_ACTION_ON_RELEASE、
+1 SHORT_RELEASE、2 NORMAL_RELEASE、3 LONG_RELEASE。
+
+**风噪**：读（`8/23`）2 字节 `[left][right]`，取值 0 WIND_NOT_DETECTED / 1 WIND_DETECTED；
+写（`8/24`）1 字节 `State`（0/1）。
+
+**开关机/待机超时**（`PowerTimeoutSetting`）：`[enabled][value]`，value 为分钟（1 字节）。
 
 **按键手势（feature 11）**（`GestureFactory`、`GetGestureConfigurationResponse`、
 `SetGestureConfiguration`、`Configuration`）：

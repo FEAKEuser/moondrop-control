@@ -181,7 +181,7 @@ private:
                     // ONEBRINGTWO 1, BT_ADDRESS 1, POWER_TIMEOUT 1, DYBASS 1,
                     // LR_CHANNEL 1, GESTURES 1
                     reply(feature, 1, QByteArray::fromHex(
-                                           "0003020108040b010d0110011101120113011401150119011b011e01"));
+                                           "00030201050108040b010d0110011101120113011401150119011b011e01"));
                 } else if (m_model == AncV1) {
                     // BASIC, BATTERY, ANC - deliberately no AUDIO_CURATION / ANC V2
                     reply(feature, 1, QByteArray::fromHex("000101010201"));
@@ -241,7 +241,7 @@ private:
             return;
         }
 
-        if (feature == FeatureMusicProcessing && m_model == Edge) {
+        if (feature == FeatureMusicProcessing && (m_model == Edge || m_model == Rich)) {
             switch (command) {
             case 0:
                 reply(feature, 0, QByteArray(1, '\x01'));

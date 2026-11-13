@@ -139,7 +139,7 @@ class MoondropDevice : public QObject
     Q_PROPERTY(bool multipointSupported READ multipointSupported NOTIFY capabilitiesChanged)
     Q_PROPERTY(bool multipointEnabled READ multipointEnabled NOTIFY codecChanged)
     // one entry per supported extra setting:
-    // {id, label, kind ("bool"|"int"), value, min, max, writable}
+    // {id, label, kind ("bool"|"int"|"enum"), value, min, max, options?}
     Q_PROPERTY(QVariantList extraSettings READ extraSettings NOTIFY extraChanged)
     // 5 byte ANC switch configuration {state, ancOn, ancOff, transparency, order}
     Q_PROPERTY(QVariantMap ancSwitchConfig READ ancSwitchConfig NOTIFY ancSwitchChanged)

@@ -47,7 +47,7 @@ QList<DeviceProfile> buildProfiles()
         edge2.isBuds = false;
         edge2.battery = BatteryKind::Single;
         edge2.batteryIds = {0};
-        edge2.ancPath = 8; // same module as EDGE, so try AudioCuration first
+        edge2.ancPath = 8; // preference (measured on EDGE); probing still decides
         edge2.gainOrder = GainOrder::Descending;
         edge2.family = DeviceFamily::Bluetrum;
         edge2.eqBands = 5;
@@ -237,7 +237,8 @@ QList<DeviceProfile> buildProfiles()
     const QList<int> budsOnly = {BatteryIdLeft, BatteryIdRight};
     const QList<int> singleValue = {0};
 
-    // bluetrum module, two batteries
+    // bluetrum module, two batteries.  ancPath 8 is only a preference: it is
+    // measured on EDGE, and every other family falls back to capability probing.
     addCatalog("evo-2", "MOONDROP EVO 2",
                {QStringLiteral("MOONDROP EVO 2")}, {QStringLiteral("EVO 2")},
                DeviceFamily::Bluetrum, true, BatteryKind::Buds, budsOnly, 10, 8);
@@ -346,10 +347,13 @@ QString profileNotes(const DeviceProfile &profile)
     if (profile.id == QLatin1String("space-travel")) {
         return moondropTr("Capabilities are detected from the device");
     }
+    if (profile.id == QLatin1String("nekocake")) {
+        return moondropTr("Measured on a real device (firmware 1.0.0)");
+    }
     if (profile.id == QLatin1String("generic")) {
         return moondropTr("Capabilities are detected from the device");
     }
-    if (profile.family != DeviceFamily::Unknown) {
+    if (profile.family != DeviceFamily::Unknown && !profile.verified) {
         return moondropTr("Official app catalog: %1 module, %2 EQ bands; commands are not measured on hardware yet.")
             .arg(familyModuleName(profile.family))
             .arg(profile.eqBands > 0 ? QString::number(profile.eqBands) : QStringLiteral("?"));

@@ -1801,8 +1801,9 @@ void MoondropDevice::refreshDetails()
         bandCount.feature = FeatureMusicProcessing;
         bandCount.command = CEqGetBandCount;
         bandCount.what = QStringLiteral("eq-band-count");
+        // onRequestTick calls onDone after a timeout as well, so one callback
+        // covers both "answered" and "silent"
         bandCount.onDone = [this] { requestUserEq(); };
-        bandCount.onTimeout = [this] { requestUserEq(); };
         enqueue(bandCount);
 
         send(FeatureMusicProcessing, CEqGetPresets, QByteArray(), true, QStringLiteral("eq-presets"));
@@ -1853,8 +1854,10 @@ void MoondropDevice::refreshDetails()
 
     // The firmware fills this value in late: the early read can still hold the
     // previous host's address (measured on EDGE), so read it again at the end.
-    send(FeatureBtAddress, CBtAddressGet, QByteArray(), true,
-         QStringLiteral("host-address-refresh"));
+    if (hasFeature(FeatureBtAddress)) {
+        send(FeatureBtAddress, CBtAddressGet, QByteArray(), true,
+             QStringLiteral("host-address-refresh"));
+    }
 
     // noise cancelling exists in three command families: the profile knows which
     // one the model answers, otherwise ask the supported one
@@ -2545,14 +2548,29 @@ void MoondropDevice::applyUserEqInternal(const QVariantList &bands, bool selectC
         setError(moondropTr("The parametric EQ needs exactly %1 bands.").arg(userEqBandCount()));
         return;
     }
+    // Clamp once, up front: the verification read compares against the values
+    // that were actually written, not the out-of-range input (which would make
+    // every clamped write look rejected).
+    QVariantList clamped;
+    for (const QVariant &item : bands) {
+        QVariantMap band = item.toMap();
+        band.insert(QStringLiteral("frequency"),
+                    qBound(20, band.value(QStringLiteral("frequency"), 1000).toInt(), 20000));
+        band.insert(QStringLiteral("q"),
+                    qBound(m_profile.qMin, band.value(QStringLiteral("q"), 1.0).toDouble(), m_profile.qMax));
+        band.insert(QStringLiteral("gain"),
+                    qBound(m_profile.gainMin, band.value(QStringLiteral("gain"), 0.0).toDouble(),
+                           m_profile.gainMax));
+        clamped.append(band);
+    }
     prepareUserAction();
     // anything we are about to overwrite becomes the restore point
-    if (snapshot && !m_bands.isEmpty() && !bandsMatch(m_bands, bands)) {
+    if (snapshot && !m_bands.isEmpty() && !bandsMatch(m_bands, clamped)) {
         rememberDeviceEq(m_bands);
     }
-    m_eqWriteTarget = bands;
+    m_eqWriteTarget = clamped;
     m_eqWriteAttempts = 0;
-    writeEqPayload(bands);
+    writeEqPayload(clamped);
 
     if (selectCustom) {
         // appended after the write, which is still queued behind the in-flight
@@ -2714,6 +2732,11 @@ QVariantList MoondropDevice::extraSettings() const
 
 bool MoondropDevice::extraSupported(const QString &id) const
 {
+    // Without the capability list (probe timed out) nothing is known to be
+    // supported; do not show defaults or probe every feature blindly.
+    if (!m_featuresKnown) {
+        return false;
+    }
     if (m_extraAbsent.contains(id)) {
         return false;
     }
@@ -2899,16 +2922,19 @@ void MoondropDevice::setAncSwitchConfig(bool state, bool ancOn, bool ancOff, boo
 
 void MoondropDevice::parseMultipointDevice(const QByteArray &payload, bool first)
 {
-    // [number][6 byte address][name UTF-8]
+    if (first) {
+        m_mpDevices.clear();
+    }
+    // [number][6 byte address][name UTF-8]; an empty answer means "none left"
     if (payload.size() < 7) {
+        if (first) {
+            Q_EMIT multipointChanged();
+        }
         return;
     }
     const int number = quint8(payload.at(0));
     const QString address = macFromBytes(payload.mid(1, 6));
     const QString name = QString::fromUtf8(payload.mid(7));
-    if (first) {
-        m_mpDevices.clear();
-    }
     for (int i = 0; i < m_mpDevices.size(); ++i) {
         if (m_mpDevices.at(i).toMap().value(QStringLiteral("number")).toInt() == number) {
             m_mpDevices.removeAt(i);
@@ -2965,6 +2991,9 @@ void MoondropDevice::requestGestureInfo()
     if (!m_transport->isConnected() || !hasFeature(FeatureGesture)) {
         return;
     }
+    // A previous read may have been interrupted (queue cleared by a user action
+    // or a page timeout); a fresh read must not append to that leftover.
+    m_gesturePending.clear();
     // The app fetches these four lists together, then one request per gesture.
     static const quint8 commands[] = {
         CGestureTouchpads, CGestureSupportedGestures, CGestureSupportedContexts,
@@ -2995,11 +3024,18 @@ bool MoondropDevice::parseGestureFrame(quint8 command, const QByteArray &payload
         if (command == CGestureSupportedGestures) {
             // one configuration read per gesture, starting at offset 0
             for (int id : bitmapIds(payload)) {
+                Request config;
+                config.feature = FeatureGesture;
+                config.command = CGestureGetConfiguration;
                 QByteArray request;
                 request.append(char(id));
                 request.append(char(0));
-                send(FeatureGesture, CGestureGetConfiguration, request, true,
-                     QStringLiteral("gesture-config-%1").arg(id));
+                config.payload = request;
+                config.what = QStringLiteral("gesture-config-%1").arg(id);
+                config.timeoutMs = 600;
+                config.maxAttempts = 1;
+                config.onTimeout = [this, id] { m_gesturePending.remove(id); };
+                enqueue(config);
             }
         }
         Q_EMIT gesturesChanged();
