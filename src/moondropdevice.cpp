@@ -110,7 +110,7 @@ const ExtraSpec kExtraSpecs[] = {
     {"standbyTimeout", FeaturePowerTimeout, 3, 4, false, 255},
     {"windNoise", FeatureAudioCuration, 23, 24, true, 0},
     {"autoTransparency", FeatureAudioCuration, 26, 27, true, 0},
-    {"autoTransparencyRelease", FeatureAudioCuration, 28, 29, false, 10},
+    {"autoTransparencyRelease", FeatureAudioCuration, 28, 29, false, 3},
     {"acGain", FeatureAudioCuration, 5, 6, false, 255},
     {"multipointTimeout", FeatureOneBringTwo, 3, 4, false, 255},
 };
@@ -2689,6 +2689,24 @@ QVariantList MoondropDevice::extraSettings() const
                      m_extras.value(id, spec.boolean ? QVariant(false) : QVariant(0)));
         entry.insert(QStringLiteral("min"), 0);
         entry.insert(QStringLiteral("max"), spec.maximum);
+        if (id == QLatin1String("autoTransparencyRelease")) {
+            // AutoTransparencyReleaseTime enum values (PROTOCOL 13.5)
+            entry.insert(QStringLiteral("kind"), QStringLiteral("enum"));
+            QVariantList options;
+            const QList<QPair<int, QString>> values{
+                {0, moondropTr("Off")},
+                {1, moondropTr("Short release")},
+                {2, moondropTr("Normal release")},
+                {3, moondropTr("Long release")},
+            };
+            for (const auto &value : values) {
+                QVariantMap option;
+                option.insert(QStringLiteral("id"), value.first);
+                option.insert(QStringLiteral("label"), value.second);
+                options.append(option);
+            }
+            entry.insert(QStringLiteral("options"), options);
+        }
         list.append(entry);
     }
     return list;

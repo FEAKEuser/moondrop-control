@@ -49,6 +49,34 @@ PlasmaComponents3.ScrollView {
 
                 RowLayout {
                     Layout.fillWidth: true
+                    visible: modelData.kind === "enum"
+
+                    PlasmaComponents3.Label {
+                        Layout.fillWidth: true
+                        text: modelData.label
+                        font: Kirigami.Theme.smallFont
+                        elide: Text.ElideRight
+                    }
+                    PlasmaComponents3.ComboBox {
+                        enabled: Moondrop.connected && !Moondrop.busy
+                        textRole: "label"
+                        valueRole: "id"
+                        model: modelData.options
+                        currentIndex: {
+                            const options = modelData.options
+                            for (let i = 0; i < options.length; ++i) {
+                                if (options[i].id === modelData.value) {
+                                    return i
+                                }
+                            }
+                            return -1
+                        }
+                        onActivated: index => page.updateValue(modelData.id, modelData.options[index].id)
+                    }
+                }
+
+                RowLayout {
+                    Layout.fillWidth: true
                     visible: modelData.kind === "int"
 
                     PlasmaComponents3.Label {

@@ -540,6 +540,15 @@ msgstr "自动通透"
 msgid "Auto transparency hold time"
 msgstr "自动通透保持时间"
 
+msgid "Short release"
+msgstr "短保持"
+
+msgid "Normal release"
+msgstr "标准保持"
+
+msgid "Long release"
+msgstr "长保持"
+
 msgid "Noise cancelling gain"
 msgstr "降噪增益"
 
