@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import QtQuick
+import QtQuick.Controls
 import QtQuick.Layouts
 
 import org.kde.plasma.components as PlasmaComponents3
@@ -82,23 +83,33 @@ PlasmaExtras.Representation {
             id: tabBar
             Layout.fillWidth: true
 
-            // Text-only tabs: with icons the fifth of a 22-gridUnit panel is
-            // too narrow and "Tuning"/"Sound" wrap into two lines.  The page
-            // headings keep the full names ("Noise cancelling mode").
+            // Monochrome Breeze symbolic icons (they follow the theme text
+            // colour).  The labels stay short so nothing wraps at the minimum
+            // panel width; abbreviations are explained by the page headings.
             PlasmaComponents3.TabButton {
                 text: i18n("Noise")
+                icon.name: "audio-volume-muted-symbolic"
+                display: AbstractButton.TextUnderIcon
             }
             PlasmaComponents3.TabButton {
                 text: i18n("Tuning")
+                icon.name: "view-media-equalizer-symbolic"
+                display: AbstractButton.TextUnderIcon
             }
             PlasmaComponents3.TabButton {
                 text: i18n("Sound")
+                icon.name: "audio-card-symbolic"
+                display: AbstractButton.TextUnderIcon
             }
             PlasmaComponents3.TabButton {
                 text: i18n("Info")
+                icon.name: "help-about-symbolic"
+                display: AbstractButton.TextUnderIcon
             }
             PlasmaComponents3.TabButton {
                 text: i18n("More")
+                icon.name: "preferences-other-symbolic"
+                display: AbstractButton.TextUnderIcon
             }
         }
 

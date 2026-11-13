@@ -12,9 +12,9 @@ PlasmaComponents3.ScrollView {
 
     // MOONDROP firmware uses bit style codes for the AudioCuration family
     readonly property var modes: [
-        { mode: 0, label: i18n("Off"), icon: "audio-volume-muted" },
-        { mode: 1, label: i18n("Noise cancelling"), icon: "audio-volume-low" },
-        { mode: 2, label: i18n("Transparency"), icon: "audio-volume-high" }
+        { mode: 0, label: i18n("Off"), icon: "audio-volume-muted-symbolic" },
+        { mode: 1, label: i18n("Noise cancelling"), icon: "audio-volume-low-symbolic" },
+        { mode: 2, label: i18n("Transparency"), icon: "audio-volume-high-symbolic" }
     ]
 
     // ANC order values from the app's ACOrders enum (PROTOCOL 13.5)
