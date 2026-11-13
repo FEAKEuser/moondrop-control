@@ -726,3 +726,16 @@ msgstr "断开最近手机"
 
 msgid "Join calls and hang up"
 msgstr "加入通话并挂断"
+
+# ---- fallback labels ----------------------------------------------------
+msgid "Gesture %1"
+msgstr "手势 %1"
+
+msgid "Context %1"
+msgstr "场景 %1"
+
+msgid "Touchpad %1"
+msgstr "触摸板 %1"
+
+msgid "Action %1"
+msgstr "动作 %1"
