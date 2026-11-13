@@ -203,7 +203,8 @@ jobs:
     steps:
       - name: Install build dependencies
         run: |
-          pacman -Syu --noconfirm --needed base-devel git cmake ninja shadow
+          pacman -Syu --noconfirm --needed base-devel git cmake ninja shadow \
+            extra-cmake-modules gettext qt6-base qt6-declarative ki18n bluez plasma-workspace
 
       - uses: actions/checkout@v4
 
@@ -213,7 +214,9 @@ jobs:
         run: |
           useradd -m builder
           chown -R builder:builder "$PWD"
-          runuser -u builder -- bash -c "cd '$PWD/packaging/arch' && makepkg -s --noconfirm"
+          # -s would call sudo, which has no password in this container; the
+          # dependencies are installed above as root instead.
+          runuser -u builder -- bash -c "cd '$PWD/packaging/arch' && makepkg --noconfirm"
 
       - uses: actions/upload-artifact@v4
         with:
