@@ -159,6 +159,49 @@ ColumnLayout {
     PlasmaComponents3.Label {
         Layout.fillWidth: true
         Layout.topMargin: Kirigami.Units.smallSpacing
+        text: i18n("Noise cancelling")
+        font.bold: true
+    }
+
+    PlasmaComponents3.Switch {
+        Layout.fillWidth: true
+        text: i18n("Restore the last noise cancelling mode when the headphone connects")
+        checked: Moondrop.ancRestoreLast
+        onToggled: Moondrop.setAncRestoreLast(checked)
+    }
+
+    PlasmaComponents3.Label {
+        Layout.fillWidth: true
+        Layout.leftMargin: Kirigami.Units.gridUnit * 2
+        wrapMode: Text.WordWrap
+        opacity: 0.7
+        font: Kirigami.Theme.smallFont
+        text: i18n("The widget always shows the mode the headphone reports. With this on, the mode last set here is written back after connecting - useful for models that start with noise cancelling off.")
+    }
+
+    PlasmaComponents3.Label {
+        Layout.fillWidth: true
+        Layout.leftMargin: Kirigami.Units.gridUnit * 2
+        visible: Moondrop.ancLastMode >= 0
+        wrapMode: Text.WordWrap
+        opacity: 0.7
+        font: Kirigami.Theme.smallFont
+        text: i18n("Remembered for this headphone: %1.", configPage.ancModeName(Moondrop.ancLastMode))
+    }
+
+    function ancModeName(mode) {
+        switch (mode) {
+        case 0: return i18n("Off")
+        case 1: return i18n("Noise cancelling")
+        case 2: return i18n("Transparency")
+        case 3: return i18n("Wind noise reduction")
+        default: return i18n("unknown")
+        }
+    }
+
+    PlasmaComponents3.Label {
+        Layout.fillWidth: true
+        Layout.topMargin: Kirigami.Units.smallSpacing
         text: i18n("Device profile")
         font.bold: true
     }

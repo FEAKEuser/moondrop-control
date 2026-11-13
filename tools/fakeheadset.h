@@ -32,7 +32,11 @@ class FakeHeadset : public Transport
 {
     Q_OBJECT
 public:
-    enum Model { Edge, Pudding, Robin, Rich };
+    // Edge / Pudding / Robin follow the measured or published captures; AncV1 is
+    // a minimal device that only implements the ANC V1 family (feature 2), which
+    // no measured model here does - it exists so that path has any coverage.
+    // Rich implements every extra feature the widget knows about (PROTOCOL 13).
+    enum Model { Edge, Pudding, Robin, Rich, AncV1 };
 
     explicit FakeHeadset(Model model = Edge, QObject *parent = nullptr)
         : Transport(parent)
@@ -114,6 +118,17 @@ public:
     // attempt fails with EBUSY, like a real headphone whose slot is taken.
     void setBusy(bool busy) { m_busy = busy; }
 
+    // Model a firmware that acknowledges the ANC set command and needs
+    // `milliseconds` before the new mode is what a read reports.  The EDGE
+    // neither acknowledges the set nor is queried this early (docs/PROTOCOL.md
+    // measures it); models whose SET does answer must still not be verified
+    // while their engine is switching.  A negative value switches the model
+    // back to the EDGE behaviour (no ACK, mode is live immediately).
+    void setAncSetAckDelay(int milliseconds) { m_ancSetAckDelayMs = milliseconds; }
+
+    // Pretend the mode was changed on the headphone itself (touch control).
+    void setAncMode(int mode) { m_ancMode = mode; }
+
     // the UI mode (0 = off, 1 = anc, 2 = transparency, 3 = wind) stays the same,
     // only the wire encoding differs between writing and reading
     static int writeValueToUiMode(int value)
@@ -164,9 +179,12 @@ private:
                     // BASIC 3, ANC 1, EQ 1, AUDIO_CURATION 4, BATTERY 1,
                     // DAC_GAIN 1, CODEC 1, LIGHT_SENSOR 1, SPATIAL 1, LED 1,
                     // ONEBRINGTWO 1, BT_ADDRESS 1, POWER_TIMEOUT 1, DYBASS 1,
-                    // LR_CHANNEL 1
+                    // LR_CHANNEL 1, GESTURES 1
                     reply(feature, 1, QByteArray::fromHex(
                                            "0003020108040b010d0110011101120113011401150119011b011e01"));
+                } else if (m_model == AncV1) {
+                    // BASIC, BATTERY, ANC - deliberately no AUDIO_CURATION / ANC V2
+                    reply(feature, 1, QByteArray::fromHex("000101010201"));
                 } else {
                     reply(feature, 1, QByteArray::fromHex("000301050101010602000208010f0110011101140115010d01"));
                 }
@@ -181,6 +199,8 @@ private:
                     reply(feature, 4, QByteArray("MOONDROP Robin"));
                 } else if (m_model == Rich) {
                     reply(feature, 4, QByteArray("MOONDROP Test"));
+                } else if (m_model == AncV1) {
+                    reply(feature, 4, QByteArray("MOONDROP Space Travel"));
                 } else {
                     reply(feature, 4, QByteArray("MOONDROP EDGE"));
                 }
@@ -275,8 +295,9 @@ private:
             } else if (command == 4 && !sent.payload.isEmpty()) {
                 const int mode = writeValueToUiMode(quint8(sent.payload.at(0)));
                 if (mode >= 0) {
-                    m_ancMode = mode;
+                    applyAncMode(mode);
                 }
+                acknowledgeAncSet(feature, command);
             } else if (m_model == Rich) {
                 switch (command) {
                 case 5: { // [mode][feature type][left gain][right gain]
@@ -331,6 +352,18 @@ private:
             return;
         }
 
+        if (feature == FeatureAnc) {
+            // ANC V1: written with command 2 (SET_ANC_STATE, per the app's
+            // V3ANCPlugin$COMMANDS), read with command 4; values are 0/1.
+            if (command == 4) {
+                reply(feature, 4, QByteArray(1, char(m_ancMode == 0 ? 0 : 1)));
+            } else if (command == 2 && !sent.payload.isEmpty()) {
+                applyAncMode(quint8(sent.payload.at(0)) == 0 ? 0 : 1);
+                acknowledgeAncSet(feature, command);
+            }
+            return;
+        }
+
         if (feature == FeatureAncV2) {
             // ANC V2 uses the same value for reading and writing
             if (command == 41) {
@@ -344,7 +377,8 @@ private:
             if (command == 3) {
                 reply(feature, 3, QByteArray(1, char(quint8(m_ancMode))));
             } else if (command == 4 && !sent.payload.isEmpty() && quint8(sent.payload.at(0)) <= 3) {
-                m_ancMode = quint8(sent.payload.at(0));
+                applyAncMode(quint8(sent.payload.at(0)));
+                acknowledgeAncSet(feature, command);
             }
             return;
         }
@@ -538,6 +572,24 @@ private:
         }
     }
 
+    // Apply a mode the way the modelled firmware does: immediately, or after
+    // the modelled engine switch delay when the set is acknowledged.
+    void applyAncMode(int mode)
+    {
+        if (m_ancSetAckDelayMs < 0) {
+            m_ancMode = mode;
+            return;
+        }
+        QTimer::singleShot(m_ancSetAckDelayMs, this, [this, mode] { m_ancMode = mode; });
+    }
+
+    void acknowledgeAncSet(quint16 feature, quint8 command)
+    {
+        if (m_ancSetAckDelayMs >= 0) {
+            reply(feature, command, QByteArray(1, char(quint8(m_ancMode))));
+        }
+    }
+
     void reply(quint16 feature, quint8 command, const QByteArray &payload)
     {
         deliver(encodeFrame(feature, command, payload, TypeResponse));
@@ -561,6 +613,8 @@ private:
     int m_expectedChannel = 1;
     int m_lastErrno = 0;
     int m_ancMode = 0;
+    // -1 = no ACK (the EDGE), >= 0 = ACK now, mode live after this many ms
+    int m_ancSetAckDelayMs = -1;
     int m_preset = 0x3F;
     int m_gain = 0;
     bool m_ldac = false;

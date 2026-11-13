@@ -274,6 +274,45 @@ int signed16(quint8 hi, quint8 lo)
     return value;
 }
 
+// The value to put on the wire for a UI mode, or -1 when the command family of
+// this headphone cannot express it.  The AudioCuration family uses bit style
+// codes (1 = off, 2 = ANC, 3 = wind, 4 = transparency), ANC V2 the identity,
+// ANC V1 only knows on/off.
+int deviceValueForAncMode(int ancPath, int mode)
+{
+    switch (ancPath) {
+    case AncPathAudioCuration:
+        switch (mode) {
+        case AncOff: return 1;
+        case AncNoiseCancelling: return 2;
+        case AncTransparency: return 4;
+        case AncWind: return 3;
+        default: return -1;
+        }
+    case AncPathAncV2:
+        return (mode >= AncOff && mode <= AncWind) ? mode : -1;
+    case AncPathAncV1:
+        return (mode == AncOff) ? 0 : (mode > 0 ? 1 : -1);
+    default:
+        return -1;
+    }
+}
+
+// What a UI mode means on this command family: V1 folds every non-off mode into
+// "noise cancelling", so comparing the saved mode with the reported one has to
+// use the folded value.
+int effectiveAncMode(int ancPath, int mode)
+{
+    switch (ancPath) {
+    case AncPathAncV1:
+        return mode > 0 ? AncNoiseCancelling : (mode == AncOff ? AncOff : -1);
+    case AncPathAncV2:
+        return (mode >= AncOff && mode <= AncWind) ? mode : -1;
+    default:
+        return mode;
+    }
+}
+
 } // namespace
 
 // ---------------------------------------------------------------------------
@@ -690,6 +729,7 @@ void MoondropDevice::loadSettings()
     m_settingsChannel = m_settings->value(QStringLiteral("device/channel"), 0).toInt();
     m_autoConnect = m_settings->value(QStringLiteral("device/autoConnect"), true).toBool();
     m_autoReconnect = m_settings->value(QStringLiteral("device/autoReconnect"), true).toBool();
+    m_ancRestoreLast = m_settings->value(QStringLiteral("anc/restoreLast"), false).toBool();
     updatePresetNames();
 }
 
@@ -699,6 +739,7 @@ void MoondropDevice::saveSettings()
     m_settings->setValue(QStringLiteral("device/channel"), m_settingsChannel);
     m_settings->setValue(QStringLiteral("device/autoConnect"), m_autoConnect);
     m_settings->setValue(QStringLiteral("device/autoReconnect"), m_autoReconnect);
+    m_settings->setValue(QStringLiteral("anc/restoreLast"), m_ancRestoreLast);
     m_settings->sync();
 }
 
@@ -717,6 +758,8 @@ void MoondropDevice::setAddress(const QString &address)
     }
     saveSettings();
     Q_EMIT settingsChanged();
+    // the remembered mode belongs to the headphone we just switched to
+    Q_EMIT ancModeChanged();
 }
 
 void MoondropDevice::setChannel(int channel)
@@ -749,6 +792,16 @@ void MoondropDevice::setAutoReconnect(bool enabled)
     Q_EMIT settingsChanged();
 }
 
+void MoondropDevice::setAncRestoreLast(bool enabled)
+{
+    if (m_ancRestoreLast == enabled) {
+        return;
+    }
+    m_ancRestoreLast = enabled;
+    saveSettings();
+    Q_EMIT settingsChanged();
+}
+
 void MoondropDevice::clearDeviceInfo()
 {
     // Everything below is read *from the headphone* and is therefore only valid
@@ -777,6 +830,8 @@ void MoondropDevice::clearDeviceInfo()
 
     m_ancPath = AncPathUnknown;
     m_ancMode = -1;
+    // the next connection gets its own restore attempt
+    m_ancRestorePending = false;
 
     m_eqSupported = false;
     m_presetIds.clear();
@@ -901,6 +956,7 @@ void MoondropDevice::connectTo(const QString &address, int channel)
     if (address != m_settingsAddress) {
         m_settingsAddress = address;
         Q_EMIT settingsChanged();
+        Q_EMIT ancModeChanged();
     }
     if (channel > 0 && channel != m_settingsChannel) {
         m_settingsChannel = channel;
@@ -1370,6 +1426,7 @@ void MoondropDevice::handleResponse(const Frame &frame)
             }
             Q_EMIT capabilitiesChanged();
             Q_EMIT ancModeChanged();
+            restoreSavedAncMode();
         }
         break;
 
@@ -1381,6 +1438,7 @@ void MoondropDevice::handleResponse(const Frame &frame)
             }
             Q_EMIT capabilitiesChanged();
             Q_EMIT ancModeChanged();
+            restoreSavedAncMode();
         }
         break;
 
@@ -1395,6 +1453,7 @@ void MoondropDevice::handleResponse(const Frame &frame)
             }
             Q_EMIT capabilitiesChanged();
             Q_EMIT ancModeChanged();
+            restoreSavedAncMode();
             break;
         case CAcSetMode:
             Q_EMIT commandFinished(QStringLiteral("anc"), true);
@@ -1646,8 +1705,8 @@ void MoondropDevice::onRequestTick()
     m_hasInFlight = false;
     Q_EMIT busyChanged();
     if (failed.expectReply) {
-        // fire-and-forget commands are not expected to answer, so a missing
-        // reply is not worth a log line
+        // Commands the firmware does not acknowledge are expected to stay
+        // silent; reporting those as "no answer" hides real timeouts.
         Q_EMIT logMessage(moondropTr("no answer for %1 (feature %2, command %3)")
                               .arg(failed.what)
                               .arg(failed.feature)
@@ -1673,6 +1732,11 @@ bool MoondropDevice::hasFeature(quint16 feature) const
 void MoondropDevice::handshake()
 {
     Q_EMIT logMessage(moondropTr("Connected to %1 on channel %2").arg(m_transport->address()).arg(m_transport->channel()));
+    // Which restore behaviour this link gets is decided here, once per
+    // connection: flipping the switch later must not write into a session the
+    // user started long ago (it applies to the next connection instead).
+    m_ancRestoreForLink = m_ancRestoreLast;
+    m_ancRestorePending = false;
     refresh();
 }
 
@@ -1835,6 +1899,9 @@ void MoondropDevice::refreshDetails()
             m_ready = true;
             Q_EMIT readyChanged();
         }
+        // the headphone's own mode is known now: write the remembered one back
+        // when the user asked for that
+        restoreSavedAncMode();
     };
     enqueue(done);
 }
@@ -2285,33 +2352,19 @@ void MoondropDevice::sendRaw(int feature, int command, const QString &payloadHex
 
 void MoondropDevice::setAncMode(int mode)
 {
+    applyAncMode(mode, true);
+}
+
+void MoondropDevice::applyAncMode(int mode, bool userAction)
+{
     if (!m_transport->isConnected()) {
         return;
     }
-    int deviceValue = -1;
-    switch (m_ancPath) {
-    case AncPathAudioCuration:
-        // MOONDROP firmware expects bit style codes here: 1 = off, 2 = ANC,
-        // 3 = wind, 4 = transparency
-        switch (mode) {
-        case AncOff: deviceValue = 1; break;
-        case AncNoiseCancelling: deviceValue = 2; break;
-        case AncTransparency: deviceValue = 4; break;
-        case AncWind: deviceValue = 3; break;
-        default: deviceValue = -1; break;
-        }
-        break;
-    case AncPathAncV2:
-        deviceValue = mode;
-        break;
-    case AncPathAncV1:
-        deviceValue = (mode == AncOff) ? 0 : 1;
-        break;
-    default:
-        setError(moondropTr("This headphone does not report noise cancelling support."));
-        return;
-    }
+    const int deviceValue = deviceValueForAncMode(m_ancPath, mode);
     if (deviceValue < 0) {
+        if (userAction && m_ancPath == AncPathUnknown) {
+            setError(moondropTr("This headphone does not report noise cancelling support."));
+        }
         return;
     }
 
@@ -2321,31 +2374,115 @@ void MoondropDevice::setAncMode(int mode)
     const quint8 command = (m_ancPath == AncPathAudioCuration) ? CAcSetMode
                            : (m_ancPath == AncPathAncV2)       ? CAncV2SetCurrentMode
                                                                : CAncSetState;
-    // The firmware does not acknowledge this command, so update optimistically
-    // and queue a verification read right behind it (the queue keeps the order).
-    // Switching the ANC engine keeps the firmware busy for up to two seconds,
-    // it ignores everything sent in the meantime - hence the long slot.
-    prepareUserAction();
-    // write right away (the device does not acknowledge it at all) ...
-    writeNow(feature, command, QByteArray(1, char(deviceValue)));
-    // ... and keep the queue busy for the time the firmware needs to settle, it
-    // ignores everything sent in the meantime
-    Request settle;
-    settle.silent = true;
-    settle.timeoutMs = 2200;
-    settle.maxAttempts = 1;
-    settle.what = QStringLiteral("anc-settle");
-    enqueue(settle);
-    m_ancMode = mode;
+    if (userAction) {
+        prepareUserAction();
+        // The firmware does not acknowledge this command, so update optimistically
+        // and queue a verification read right behind it (the queue keeps the order).
+        // Switching the ANC engine keeps the firmware busy for up to two seconds,
+        // it ignores everything sent in the meantime - hence the long slot.
+        // write right away (the device does not acknowledge it at all) ...
+        writeNow(feature, command, QByteArray(1, char(deviceValue)));
+        // ... and keep the queue busy for the time the firmware needs to settle, it
+        // ignores everything sent in the meantime
+        Request settle;
+        settle.silent = true;
+        settle.timeoutMs = 2200;
+        settle.maxAttempts = 1;
+        settle.what = QStringLiteral("anc-settle");
+        enqueue(settle);
+    } else {
+        // A restore runs behind the state refresh, so the write has to queue up
+        // like every other request.  Its own wait is short (the EDGE does not
+        // acknowledge the set at all); the settle slot after it is what keeps
+        // commands away for the two seconds the engine switch needs - and it
+        // still applies when a model *does* acknowledge the set.
+        Request write;
+        write.feature = feature;
+        write.command = command;
+        write.payload = QByteArray(1, char(deviceValue));
+        write.expectReply = false;
+        write.timeoutMs = 250;
+        write.maxAttempts = 1;
+        write.what = QStringLiteral("anc-restore");
+        enqueue(write);
+
+        Request settle;
+        settle.silent = true;
+        settle.timeoutMs = 2200;
+        settle.maxAttempts = 1;
+        settle.what = QStringLiteral("anc-settle");
+        enqueue(settle);
+    }
+
+    // remember what was asked for, so the next connection can put it back
+    const int reported = effectiveAncMode(m_ancPath, mode);
+    m_ancMode = reported < 0 ? mode : reported;
+    rememberAncMode(m_ancMode);
     Q_EMIT ancModeChanged();
 
+    // verify through the family the write went to: reading another one would
+    // never answer on models that only implement ANC V1 or V2
     Request verify;
-    verify.feature = FeatureAudioCuration;
-    verify.command = CAcGetCurrentMode;
+    verify.feature = feature;
+    verify.command = (feature == FeatureAudioCuration) ? CAcGetCurrentMode
+                      : (feature == FeatureAncV2)      ? CAncV2GetCurrentMode
+                                                       : CAncGetCurrentMode;
     verify.what = QStringLiteral("anc-mode");
     verify.timeoutMs = 1000;
     verify.maxAttempts = 3;
     enqueue(verify);
+}
+
+int MoondropDevice::savedAncMode() const
+{
+    if (m_settingsAddress.isEmpty()) {
+        return -1;
+    }
+    // one key per headphone: switching pairs must not overwrite the mode
+    // remembered for the other one
+    return m_settings->value(QStringLiteral("anc/mode/%1").arg(m_settingsAddress), -1).toInt();
+}
+
+void MoondropDevice::rememberAncMode(int mode)
+{
+    if (m_settingsAddress.isEmpty() || mode < AncOff || mode > AncWind) {
+        return;
+    }
+    if (savedAncMode() == mode) {
+        return;
+    }
+    m_settings->setValue(QStringLiteral("anc/mode/%1").arg(m_settingsAddress), mode);
+    saveSettings(); // flushes the value, so a crash cannot lose it
+}
+
+void MoondropDevice::restoreSavedAncMode()
+{
+    // once per connection, and only when the user asked for it
+    if (m_ancRestorePending || !m_ancRestoreForLink || !m_transport->isConnected()
+        || m_ancPath == AncPathUnknown) {
+        return;
+    }
+    // The decision belongs to this connection: once the command family is
+    // known, a later refresh in the same session must not write anything, even
+    // when nothing was remembered at connect time (the mode may have been set
+    // here afterwards, and the headphone may have been switched by hand since).
+    m_ancRestorePending = true;
+    const int saved = savedAncMode();
+    if (saved < 0) {
+        return; // nothing to put back yet
+    }
+    const int wanted = effectiveAncMode(m_ancPath, saved);
+    if (wanted < 0 || deviceValueForAncMode(m_ancPath, wanted) < 0) {
+        // this command family cannot express the remembered mode
+        return;
+    }
+    if (m_ancMode == wanted) {
+        // the headphone kept it by itself, no reason to write anything
+        Q_EMIT logMessage(moondropTr("The headphone already reports the remembered noise cancelling mode"));
+        return;
+    }
+    Q_EMIT logMessage(moondropTr("Restoring the noise cancelling mode last set for this headphone"));
+    applyAncMode(wanted, false);
 }
 
 void MoondropDevice::selectPreset(int presetId)

@@ -34,18 +34,25 @@ cleanup() { podman rm -f "$NAME" >/dev/null 2>&1 || true; }
 trap cleanup EXIT
 
 echo "building the backend against $IMAGE"
-podman run --name "$NAME" -d "$IMAGE" sleep 1800 >/dev/null
+# --network=host: rootless podman puts the container behind slirp, where the
+# host's http_proxy=127.0.0.1:... points at the container itself and every dnf
+# fetch fails ("Couldn't connect to server").  The host network namespace makes
+# the developer's proxy usable, which is also how this build works behind one.
+podman run --name "$NAME" --network=host -d "$IMAGE" sleep 1800 >/dev/null
 
 if ! podman exec "$NAME" bash -c '
     set -e
     dnf install -y -q cmake gcc-c++ ninja-build \
         qt6-qtbase-devel qt6-qtdeclarative-devel \
-        extra-cmake-modules kf6-ki18n-devel >/dev/null 2>&1
+        extra-cmake-modules kf6-ki18n-devel >/tmp/dnf.log 2>&1
     rpm -q qt6-qtbase kf6-ki18n
 '; then
     echo "error: could not install the build dependencies in $IMAGE." >&2
+    # the dnf output is only useful when it failed, so print it here
+    podman exec "$NAME" tail -20 /tmp/dnf.log >&2 2>/dev/null || true
     echo "The image needs Qt 6 *and* KF6 development packages; Fedora 39 and older" >&2
-    echo "predate KF6, so use fedora:40 or newer." >&2
+    echo "predate KF6, so use fedora:40 or newer (EOL images work as long as their" >&2
+    echo "repos still resolve)." >&2
     exit 1
 fi
 

@@ -45,6 +45,8 @@ The hardware-free test programs are worth running before every build you install
 ./build/cli/moondrop-profile-check # model matching (incl. the foreign-name trap)
 ./build/cli/moondrop-conncheck     # connect / queue / notification behaviour
 ./build/cli/moondrop-extras-check  # extra settings, ANC switch conf, multipoint devices, gestures (Rich fake)
+./build/cli/moondrop-ancstate-check # remembered ANC mode: restore on connect, or the device's own
+./build/cli/moondrop-settings-api-check # the setters the settings page calls as QML functions
 ./build/cli/moondrop-scan-check    # channel scan, incl. a wrong channel that goes silent
 ./build/cli/moondrop-ebusy-check   # EBUSY: give up after the retry budget, with an error
 ./build/cli/moondrop-switch-check  # switching headphones: no info from the old one
