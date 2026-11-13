@@ -1762,14 +1762,35 @@ void MoondropDevice::refreshDetails()
         send(switchFeature, 41, QByteArray(), true, QStringLiteral("anc-switch"));
     }
 
-    // Notification registration (BASIC/7) is not sent here: the measured EDGE
-    // pushes mode/EQ/battery changes without it, and each registration costs a
-    // fire-and-forget slot on a single-task firmware.  `sendRaw(0, 7, "<feature>")`
-    // is available for devices that do need it.
+    // Subscribe to the features this widget keeps live (BASIC/7 with the feature
+    // id; EDGE acknowledges it with an empty response).  A device that does not
+    // answer costs one short timeout per supported feature.
+    static const quint16 tracked[] = {
+        FeatureAudioCuration, FeatureAncV2, FeatureMusicProcessing, FeatureBattery,
+        FeatureOneBringTwo,
+    };
+    for (quint16 trackedFeature : tracked) {
+        if (!hasFeature(trackedFeature)) {
+            continue;
+        }
+        Request registration;
+        registration.feature = FeatureBasic;
+        registration.command = 7;
+        registration.payload = QByteArray(1, char(trackedFeature));
+        registration.what = QStringLiteral("register-f%1").arg(trackedFeature);
+        registration.timeoutMs = 300;
+        registration.maxAttempts = 1;
+        enqueue(registration);
+    }
     requestExtras();
     if (hasFeature(FeatureGesture)) {
         requestGestureInfo();
     }
+
+    // The firmware fills this value in late: the early read can still hold the
+    // previous host's address (measured on EDGE), so read it again at the end.
+    send(FeatureBtAddress, CBtAddressGet, QByteArray(), true,
+         QStringLiteral("host-address-refresh"));
 
     // noise cancelling exists in three command families: the profile knows which
     // one the model answers, otherwise ask the supported one

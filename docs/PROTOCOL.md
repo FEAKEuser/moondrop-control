@@ -521,6 +521,10 @@ STATE = 0/1（`ACActions`）；后三个是「该模式是否纳入切换」；O
 （`ACOrders`：0 ON_OFF_TP、1 OFF_ON_TP、2 TP_ON_OFF、3 ON_TP_OFF、4 OFF_TP_ON、5 TP_OFF_ON）。
 EDGE 实测返回 `01 01 01 01 01` → STATE=开，三种模式都参与，顺序 OFF_ON_TP。
 
+> 实测写入（`8/42`）：第 2、3、4、5 字节都能写进去并回读一致；**第 1 字节（STATE）写 0
+> 会被固件忽略**，回读仍是 1（2026-11-13 复测）。其余字节先写 `0 1 0 1 3` 再恢复 `1 1 1 1 1`，
+> 回读均一致。
+
 **AUDIO_CURATION 当前模式（8/3）**：payload 是
 `[value][featureType][adaptationSupport][gainSupport][(howlingSupport)]`（`Mode` 类）。
 featureType：1 STATIC_ANC、2 LEAKTHROUGH_ANC、3 ADAPTIVE_ANC、4 ADAPTIVE_LEAKTHROUGH_ANC。

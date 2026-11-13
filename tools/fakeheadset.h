@@ -188,6 +188,9 @@ private:
             case 5:
                 reply(feature, 5, m_model == Rich ? QByteArray("9.9.9") : QByteArray("1.4.0"));
                 return;
+            case 7: // notification registration: acknowledged with no payload
+                reply(feature, 7, QByteArray());
+                return;
             case 22:
                 if (m_model == Edge) {
                     reply(feature, 22, QByteArray(1, '\x01'));
