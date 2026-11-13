@@ -72,12 +72,16 @@ RX  ... payload = 00 03 01 05 01 01 01 06 02 00 02 08 01 0f 01 10 01 11 01 14 01
 ```
 
 payload 是 **(feature, version) 键值对**，可含一个前导状态字节
-（真实 feature id 不会连续递增，据此可判断是否有 1 字节前缀）。EDGE 返回：
+（真实 feature id 不会连续递增，据此可判断是否有 1 字节前缀）。上面这串实测长度 25
+（奇数），即 `00` 前缀 + 12 对；本程序按长度奇偶选起点。EDGE（固件 1.4.0，2026-11-13 复测）实际为：
 
 ```
-0 BASIC   1 EARBUD   2 ANC(V1)   3 VOICE_UI   5 EQ   6 UPGRADE   8 AUDIO_CURATION
-13 BATTERY   15 DAC_GAIN   16 CODEC   17 LIGHT_SENSOR   20 MULTIPOINT   21 BT_ADDRESS
+0 BASIC v2   1 EARBUD v1   3 VOICE_UI v1   5 EQ v1   6 UPGRADE v2   8 AUDIO_CURATION v1
+13 BATTERY v1   15 DAC_GAIN v1   16 CODEC v1   17 LIGHT_SENSOR v1   20 MULTIPOINT v1   21 BT_ADDRESS v1
 ```
+
+注意**没有 ANC V1(2)**：EDGE 的降噪走 AUDIO_CURATION(8)。早先的文档里把它写进列表是解析错误。
+`17 LIGHT_SENSOR` 虽在列表里，但 `17/1` 读命令无响应（本程序探测一次后隐藏该设置）。
 
 > 注意：算法上「按 32 位 word 解析位图」（FxxkMoondrop 的做法）解析同一份 payload 会得到
 > 完全不同的集合（0,1,2,3,5,6,8,13,15,16,17,20,21 —— 恰好也能解释得通），
