@@ -1487,6 +1487,25 @@ void MoondropDevice::handleResponse(const Frame &frame)
     }
     } // rejected
 
+    if (rejected) {
+        // A rejected read is the same outcome as silence: the setting is not
+        // usable, so hide it instead of leaving a dead control behind.
+        for (const ExtraSpec &spec : kExtraSpecs) {
+            if (spec.feature != frame.feature() || spec.readCommand != frame.cmd()) {
+                continue;
+            }
+            const QString id = QString::fromLatin1(spec.id);
+            m_extraAbsent.insert(id);
+            Q_EMIT extraChanged();
+        }
+        if (frame.cmd() == 41 && (frame.feature() == FeatureAudioCuration
+                                  || frame.feature() == FeatureAncV2)
+            && !m_ancSwitch.isEmpty()) {
+            m_ancSwitch.clear();
+            Q_EMIT ancSwitchChanged();
+        }
+    }
+
     // release the queue when the answer to the in-flight request arrived
     if (m_hasInFlight && m_inFlight.feature == frame.feature() && m_inFlight.command == frame.cmd()
         && frame.type() != TypeNotification) {

@@ -271,6 +271,8 @@ int main(int argc, char **argv)
               QStringLiteral("refresh completes even when a read is rejected"));
         check(extraValue(rejected, QStringLiteral("led")).toBool() == false,
               QStringLiteral("an error status is not stored as the LED value"));
+        check(!hasExtra(rejected, QStringLiteral("led")),
+              QStringLiteral("a rejected setting is hidden like an unanswered one"));
     }
 
     std::printf(failures == 0 ? "\nall checks passed\n" : "\n%d check(s) failed\n", failures);

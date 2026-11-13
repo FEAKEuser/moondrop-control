@@ -37,8 +37,12 @@ echo "building the backend against $IMAGE"
 # --network=host: rootless podman puts the container behind slirp, where the
 # host's http_proxy=127.0.0.1:... points at the container itself and every dnf
 # fetch fails ("Couldn't connect to server").  The host network namespace makes
-# the developer's proxy usable, which is also how this build works behind one.
-podman run --name "$NAME" --network=host -d "$IMAGE" sleep 1800 >/dev/null
+# the developer's proxy usable, but the proxy variables have to be passed in
+# explicitly: podman does not forward the host environment.
+PROXY_ENV=()
+[ -n "${http_proxy:-}" ] && PROXY_ENV+=(-e "http_proxy=$http_proxy")
+[ -n "${https_proxy:-}" ] && PROXY_ENV+=(-e "https_proxy=$https_proxy")
+podman run --name "$NAME" --network=host "${PROXY_ENV[@]}" -d "$IMAGE" sleep 1800 >/dev/null
 
 if ! podman exec "$NAME" bash -c '
     set -e

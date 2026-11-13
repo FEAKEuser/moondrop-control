@@ -494,8 +494,10 @@ private:
     QVariantList m_eqWriteTarget;
     int m_eqWriteAttempts = 0;
     // the last curve this widget successfully wrote: a read that returns it is
-    // our own echo (including notification driven re-reads), not a change made
-    // on the headphone, so it must not replace the restore point
+    // our own echo (including notification driven re-reads).  It keeps an echo
+    // from overwriting the backup immediately, but manual writes still update
+    // the backup, so the restore point is the last manual curve, not
+    // necessarily the factory one
     QVariantList m_lastWrittenEq;
     void writeEqPayload(const QVariantList &bands);
     // band count to ask the device for: its own EQ/4 answer, else the value the
