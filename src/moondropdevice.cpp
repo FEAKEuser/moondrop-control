@@ -36,6 +36,9 @@ constexpr quint8 CBatteryGetSupported = 0;
 constexpr quint8 CBatteryGetLevels = 1;
 
 constexpr quint8 CAncGetState = 1;
+// The official app's V3ANCPlugin$COMMANDS has V1_SET_ANC_STATE = 2; writing the
+// state command 1 with a payload (the earlier code did that) is wrong.
+constexpr quint8 CAncSetState = 2;
 constexpr quint8 CAncGetCurrentMode = 4;
 
 constexpr quint8 CAncV2GetCurrentMode = 3;
@@ -2066,7 +2069,7 @@ void MoondropDevice::setAncMode(int mode)
                                                                : FeatureAnc;
     const quint8 command = (m_ancPath == AncPathAudioCuration) ? CAcSetMode
                            : (m_ancPath == AncPathAncV2)       ? CAncV2SetCurrentMode
-                                                               : CAncGetState;
+                                                               : CAncSetState;
     // The firmware does not acknowledge this command, so update optimistically
     // and queue a verification read right behind it (the queue keeps the order).
     // Switching the ANC engine keeps the firmware busy for up to two seconds,
