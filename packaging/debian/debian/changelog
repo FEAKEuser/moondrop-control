@@ -1,3 +1,10 @@
+moondrop-control (0.3.0-1) unstable; urgency=medium
+
+  * Device catalog from the official app, N-band parametric EQ, extra
+    settings and key gestures.
+
+ -- FEAKEuser <feohz@users.noreply.github.com>  Sat, 14 Nov 2026 00:50:00 +0800
+
 moondrop-control (0.2.0-1) unstable; urgency=medium
 
   * Remember and restore the noise cancelling mode.

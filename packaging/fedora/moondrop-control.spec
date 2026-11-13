@@ -17,7 +17,7 @@
 %global debug_package %{nil}
 
 Name:           moondrop-control
-Version:        0.2.0
+Version:        0.3.0
 Release:        1%{?dist}
 Summary:        KDE Plasma applet to control MOONDROP Bluetooth headphones
 
@@ -82,6 +82,9 @@ cp -a package %{buildroot}%{_datadir}/plasma/plasmoids/org.moondrop.control
 %{_qt6_qmldir}/org/moondrop/backend/
 
 %changelog
+* Sat Nov 14 2026 FEAKEuser <feohz@users.noreply.github.com> - 0.3.0-1
+- Device catalog from the official app, N-band parametric EQ, extra settings and gestures
+
 * Tue Nov 10 2026 FEAKEuser <feohz@users.noreply.github.com> - 0.2.0-1
 - Remember and restore the noise cancelling mode
 - Make the settings page controls actually change the settings

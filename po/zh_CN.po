@@ -6,7 +6,7 @@
 #
 msgid ""
 msgstr ""
-"Project-Id-Version: moondrop-widget 0.2.0\n"
+"Project-Id-Version: moondrop-widget 0.3.0\n"
 "Report-Msgid-Bugs-To: \n"
 "Language: zh_CN\n"
 "MIME-Version: 1.0\n"

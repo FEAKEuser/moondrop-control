@@ -54,7 +54,7 @@ def entry(plasmoid_path, base_url):
         "details": "summary",
         "id": 1,
         "name": "Moondrop Control",
-        "version": "0.2.0",
+        "version": "0.3.0",
         "typeid": 706,
         "typename": "Plasma 6 Applets",
         "xdg_type": "plasma6_plasmoids",
