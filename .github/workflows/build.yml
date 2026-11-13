@@ -40,8 +40,8 @@ jobs:
       - name: Run the hardware-free checks
         run: |
           for t in moondrop-selftest moondrop-profile-check moondrop-conncheck \
-                   moondrop-scan-check moondrop-ebusy-check moondrop-switch-check \
-                   moondrop-watchstate-check moondrop-stress; do
+                   moondrop-extras-check moondrop-scan-check moondrop-ebusy-check \
+                   moondrop-switch-check moondrop-watchstate-check moondrop-stress; do
             echo "::group::$t"
             ./build/cli/$t
           done

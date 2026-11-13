@@ -38,12 +38,13 @@ files rendered through the same tool:
 Note that the offscreen platform plugin used by the harness does not draw the
 checked state of Plasma buttons, so such checks print the result as text too.
 
-Six hardware-free test programs are worth running before every build you install:
+The hardware-free test programs are worth running before every build you install:
 
 ```bash
 ./build/cli/moondrop-selftest      # protocol codec: framing, PEQ payload, profiles
 ./build/cli/moondrop-profile-check # model matching (incl. the foreign-name trap)
 ./build/cli/moondrop-conncheck     # connect / queue / notification behaviour
+./build/cli/moondrop-extras-check  # extra settings, ANC switch conf, multipoint devices, gestures (Rich fake)
 ./build/cli/moondrop-ancstate-check # remembered ANC mode: restore on connect, or the device's own
 ./build/cli/moondrop-settings-api-check # the setters the settings page calls as QML functions
 ./build/cli/moondrop-scan-check    # channel scan, incl. a wrong channel that goes silent

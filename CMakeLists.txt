@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.21)
 
 project(moondrop-widget
-    VERSION 0.2.0
+    VERSION 0.3.0
     DESCRIPTION "KDE Plasma widget for MOONDROP headphone control (GAIA over Bluetooth RFCOMM)"
     LANGUAGES CXX)
 

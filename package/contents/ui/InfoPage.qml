@@ -14,7 +14,7 @@ PlasmaComponents3.ScrollView {
         const names = []
         const list = Moondrop.features
         for (let i = 0; i < list.length; ++i) {
-            names.push(list[i].name)
+            names.push(list[i].name + " v" + list[i].version)
         }
         return names.join(", ")
     }

@@ -36,6 +36,7 @@ QString featureName(quint16 feature)
     case FeatureDyBass: return QStringLiteral("DYBASS");
     case FeatureAudioFileStorage: return QStringLiteral("AUDIO_FILE");
     case FeatureLrChannel: return QStringLiteral("LR_CHANNEL");
+    case FeatureTouchV4: return QStringLiteral("TOUCH_V4");
     case FeatureAncV2: return QStringLiteral("ANC_V2");
     default: return QStringLiteral("F%1").arg(feature);
     }

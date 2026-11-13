@@ -31,9 +31,28 @@ int main(int argc, char **argv)
     expect("MOONDROP NEKOCAKE", "nekocake");
     expect("MOONDROP Pudding", "pudding");
     expect("Robin's Earphones", "robin");
+    // catalog-derived rows must win over the older substring patterns
+    expect("MOONDROP EDGE 2", "edge-2");
+    expect("SPACE TRAVEL 2", "space-travel-2");
+    expect("MOONDROP SPACE TRAVEL 2 ULTRA", "space-travel-2-ultra");
+
+    // the measured NEKOCAKE must not be labelled with the catalog fallback note
+    {
+        const Moondrop::DeviceProfile nekocake = Moondrop::matchProfile(QStringLiteral("Moondrop Nekocake"));
+        const QString notes = Moondrop::profileNotes(nekocake);
+        const bool catalogNote = notes.contains(QLatin1String("Official app catalog"));
+        const bool measured = notes.contains(QLatin1String("1.0.0"));
+        std::printf("%s  %-22s -> notes=%s\n", (measured && !catalogNote) ? "ok  " : "FAIL",
+                    "NEKOCAKE provenance", qPrintable(notes));
+        if (!(measured && !catalogNote)) {
+            ++failures;
+        }
+    }
 
     // a name that merely contains a profile name must not match it
     expect("Samsung EDGE 5G", "unknown");
+    expect("Poly Voyager Focus 2", "unknown");
+    expect("Jabra Voyager", "unknown");
 
     std::printf(failures == 0 ? "\nall checks passed\n" : "\n%d check(s) failed\n", failures);
     return failures == 0 ? 0 : 1;

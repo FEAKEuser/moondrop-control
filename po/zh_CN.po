@@ -6,7 +6,7 @@
 #
 msgid ""
 msgstr ""
-"Project-Id-Version: moondrop-widget 0.2.0\n"
+"Project-Id-Version: moondrop-widget 0.3.0\n"
 "Report-Msgid-Bugs-To: \n"
 "Language: zh_CN\n"
 "MIME-Version: 1.0\n"
@@ -345,8 +345,8 @@ msgstr "耳机上报的已经是记住的降噪模式"
 msgid "Restoring the noise cancelling mode last set for this headphone"
 msgstr "正在恢复此耳机上次设置的降噪模式"
 
-msgid "The parametric EQ needs exactly 5 bands."
-msgstr "参数均衡器需要正好 5 段。"
+msgid "The parametric EQ needs exactly %1 bands."
+msgstr "参数均衡器需要正好 %1 段。"
 
 msgid "Could not encode the parametric EQ."
 msgstr "无法编码参数均衡器数据。"
@@ -499,3 +499,126 @@ msgstr "帧格式取自公开的 Robin 协议文档"
 
 msgid "Capabilities are detected from the device"
 msgstr "功能按设备上报的能力自动探测"
+
+msgid "Official app catalog: %1 module, %2 EQ bands; commands are not measured on hardware yet."
+msgstr "官方 App 产品目录：%1 模块、%2 段均衡器；命令族尚未在真机验证。"
+
+# ---- extra settings (feature-gated, PROTOCOL 13.4) ----------------------
+msgid "Device settings"
+msgstr "设备设置"
+
+msgid "This headphone does not report any of the extra settings (LED, timeouts, wind noise, spatial audio, …)."
+msgstr "此耳机没有上报任何额外设置（LED、超时、风噪、空间音频等）。"
+
+msgid "LED indicator"
+msgstr "LED 指示灯"
+
+msgid "Spatial audio"
+msgstr "空间音频"
+
+msgid "Head tracking"
+msgstr "头部跟踪"
+
+msgid "Wearing sensor"
+msgstr "佩戴检测"
+
+msgid "Dynamic bass"
+msgstr "动态低音"
+
+msgid "Swap left and right"
+msgstr "左右声道互换"
+
+msgid "Power off after (minutes)"
+msgstr "自动关机（分钟）"
+
+msgid "Standby after (minutes)"
+msgstr "自动待机（分钟）"
+
+msgid "Auto transparency"
+msgstr "自动通透"
+
+msgid "Auto transparency hold time"
+msgstr "自动通透保持时间"
+
+msgid "Short release"
+msgstr "短保持"
+
+msgid "Normal release"
+msgstr "标准保持"
+
+msgid "Long release"
+msgstr "长保持"
+
+msgid "Noise cancelling gain"
+msgstr "降噪增益"
+
+msgid "Multipoint timeout (minutes)"
+msgstr "多点连接超时（分钟）"
+
+msgid "Switchable modes"
+msgstr "可切换模式"
+
+msgid "Cycle modes with the headphone button"
+msgstr "用耳机按键循环切换模式"
+
+msgid "Order"
+msgstr "切换顺序"
+
+msgid "On → Off → Transparency"
+msgstr "开 → 关 → 通透"
+
+msgid "Off → On → Transparency"
+msgstr "关 → 开 → 通透"
+
+msgid "Transparency → On → Off"
+msgstr "通透 → 开 → 关"
+
+msgid "On → Transparency → Off"
+msgstr "开 → 通透 → 关"
+
+msgid "Off → Transparency → On"
+msgstr "关 → 通透 → 开"
+
+msgid "Transparency → Off → On"
+msgstr "通透 → 关 → 开"
+
+msgid "Connected devices"
+msgstr "已连接设备"
+
+msgid "Show next connected device"
+msgstr "显示下一台已连接设备"
+
+msgid "More"
+msgstr "更多"
+
+# ---- button gestures (feature 11) ---------------------------------------
+msgid "Button gestures"
+msgstr "按键手势"
+
+msgid "Reset gestures to default"
+msgstr "恢复默认手势配置"
+
+# ---- fallback labels ----------------------------------------------------
+msgid "Gesture %1"
+msgstr "手势 %1"
+
+msgid "Context %1"
+msgstr "场景 %1"
+
+msgid "Touchpad %1"
+msgstr "触摸板 %1"
+
+msgid "Action %1"
+msgstr "动作 %1"
+
+msgid "Measured on a real device (firmware 1.0.0)"
+msgstr "在本项目真机上实测（固件 1.0.0）"
+
+msgid "Some firmware cannot turn this off; the switch returns to the device's value."
+msgstr "部分固件无法关闭此开关，控件会回到设备上报的值。"
+
+msgid "Noise"
+msgstr "降噪"
+
+msgid "The headphone rejected the request."
+msgstr "耳机拒绝了该请求。"

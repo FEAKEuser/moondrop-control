@@ -15,6 +15,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 
+#include <algorithm>
 #include <cstdio>
 
 #include <cerrno>
@@ -36,6 +37,9 @@ constexpr quint8 CBatteryGetSupported = 0;
 constexpr quint8 CBatteryGetLevels = 1;
 
 constexpr quint8 CAncGetState = 1;
+// The official app's V3ANCPlugin$COMMANDS has V1_SET_ANC_STATE = 2; writing the
+// state command 1 with a payload (the earlier code did that) is wrong.
+constexpr quint8 CAncSetState = 2;
 constexpr quint8 CAncGetCurrentMode = 4;
 
 constexpr quint8 CAncV2GetCurrentMode = 3;
@@ -64,10 +68,136 @@ constexpr quint8 CDacSetGain = 2;
 
 constexpr quint8 CMultipointGet = 1;
 constexpr quint8 CMultipointSet = 2;
+constexpr quint8 CMultipointGetTimeout = 3;
+constexpr quint8 CMultipointSetTimeout = 4;
+constexpr quint8 CMultipointDevices = 5;
+constexpr quint8 CMultipointNext = 6;
+constexpr quint8 CMultipointDisconnect = 7;
+constexpr quint8 CMultipointState = 1;
+
+constexpr quint8 CGestureTouchpads = 0;
+constexpr quint8 CGestureSupportedGestures = 1;
+constexpr quint8 CGestureSupportedContexts = 2;
+constexpr quint8 CGestureSupportedActions = 3;
+constexpr quint8 CGestureGetConfiguration = 4;
+constexpr quint8 CGestureSetConfiguration = 5;
+constexpr quint8 CGestureReset = 6;
 
 constexpr quint8 CBtAddressGet = 1;
 
 constexpr int UserPresetId = 0x3F;
+
+// Extra settings the official app exposes as separate GAIA features.  Command
+// ids come from the app's V3*Plugin$COMMANDS tables (docs/PROTOCOL.md 13.4).
+struct ExtraSpec
+{
+    const char *id;
+    quint16 feature;
+    quint8 readCommand;
+    quint8 writeCommand;
+    bool boolean; // true: one byte 0/1; false: one byte integer
+    int maximum;
+};
+
+const ExtraSpec kExtraSpecs[] = {
+    {"led", FeatureLed, 1, 2, true, 0},
+    {"spatial", FeatureSpatialAudio, 1, 2, true, 0},
+    {"headTracking", FeatureSpatialAudio, 3, 4, true, 0},
+    {"sensor", FeatureLightSensor, 1, 2, true, 0},
+    {"dybass", FeatureDyBass, 1, 2, true, 0},
+    {"lrReversed", FeatureLrChannel, 1, 2, true, 0},
+    {"powerOffTimeout", FeaturePowerTimeout, 1, 2, false, 255},
+    {"standbyTimeout", FeaturePowerTimeout, 3, 4, false, 255},
+    {"windNoise", FeatureAudioCuration, 23, 24, true, 0},
+    {"autoTransparency", FeatureAudioCuration, 26, 27, true, 0},
+    {"autoTransparencyRelease", FeatureAudioCuration, 28, 29, false, 3},
+    {"acGain", FeatureAudioCuration, 5, 6, false, 255},
+    {"multipointTimeout", FeatureOneBringTwo, 3, 4, false, 255},
+};
+
+QString extraLabel(const QString &id)
+{
+    // literals have to appear here so the string extractor can find them
+    if (id == QLatin1String("led")) {
+        return moondropTr("LED indicator");
+    }
+    if (id == QLatin1String("spatial")) {
+        return moondropTr("Spatial audio");
+    }
+    if (id == QLatin1String("headTracking")) {
+        return moondropTr("Head tracking");
+    }
+    if (id == QLatin1String("sensor")) {
+        return moondropTr("Wearing sensor");
+    }
+    if (id == QLatin1String("dybass")) {
+        return moondropTr("Dynamic bass");
+    }
+    if (id == QLatin1String("lrReversed")) {
+        return moondropTr("Swap left and right");
+    }
+    if (id == QLatin1String("powerOffTimeout")) {
+        return moondropTr("Power off after (minutes)");
+    }
+    if (id == QLatin1String("standbyTimeout")) {
+        return moondropTr("Standby after (minutes)");
+    }
+    if (id == QLatin1String("windNoise")) {
+        return moondropTr("Wind noise reduction");
+    }
+    if (id == QLatin1String("autoTransparency")) {
+        return moondropTr("Auto transparency");
+    }
+    if (id == QLatin1String("autoTransparencyRelease")) {
+        return moondropTr("Auto transparency hold time");
+    }
+    if (id == QLatin1String("acGain")) {
+        return moondropTr("Noise cancelling gain");
+    }
+    if (id == QLatin1String("multipointTimeout")) {
+        return moondropTr("Multipoint timeout (minutes)");
+    }
+    return id;
+}
+
+QList<int> bitmapIds(const QByteArray &payload)
+{
+    // The app's supported gesture/context/action lists are bitmaps:
+    // id = byte index * 8 + bit index (GestureFactory::getDefaultValues).
+    QList<int> ids;
+    for (int i = 0; i < payload.size(); ++i) {
+        const quint8 value = quint8(payload.at(i));
+        for (int bit = 0; bit < 8; ++bit) {
+            if (value & (1 << bit)) {
+                ids.append(i * 8 + bit);
+            }
+        }
+    }
+    return ids;
+}
+
+QString gestureLabel(int id)
+{
+    // The app's gesture names exist inside the Dart snapshot ("Double Tap",
+    // "Long Press 1S/3S", ...), but the numeric ids they map to were not
+    // recovered, so the UI shows the id instead of inventing semantics.
+    return moondropTr("Gesture %1").arg(id);
+}
+
+QString gestureContextLabel(int id)
+{
+    return moondropTr("Context %1").arg(id);
+}
+
+QString gestureTouchpadLabel(int id)
+{
+    return moondropTr("Touchpad %1").arg(id);
+}
+
+QString gestureActionLabel(int id)
+{
+    return moondropTr("Action %1").arg(id);
+}
 
 QString macFromBytes(const QByteArray &payload)
 {
@@ -129,16 +259,22 @@ int effectiveAncMode(int ancPath, int mode)
 } // namespace
 
 // ---------------------------------------------------------------------------
-// 5 band user PEQ payload (39 bytes on EDGE style firmware)
+// User PEQ payload: a 4 byte band range header followed by 7 bytes per band.
+// The measured EDGE firmware has five bands (39 bytes); the official app's
+// catalog also lists ten band models, which only changes the band count, not
+// the per-band layout.
 // ---------------------------------------------------------------------------
-QList<EqBand> decodeUserEq(const QByteArray &payload)
+QList<EqBand> decodeUserEq(const QByteArray &payload, int bandCount)
 {
     QList<EqBand> bands;
-    // 4 byte header + 5 * 7 byte band records
-    if (payload.size() < 4 + 5 * 7) {
+    if (bandCount <= 0) {
+        // fall back to the payload length: 4 byte header, 7 bytes per band
+        bandCount = (payload.size() - 4) / 7;
+    }
+    if (bandCount <= 0 || bandCount > 32 || payload.size() < 4 + bandCount * 7) {
         return bands;
     }
-    for (int i = 0; i < 5; ++i) {
+    for (int i = 0; i < bandCount; ++i) {
         const int off = 4 + (i * 7);
         EqBand band;
         band.frequency = (quint8(payload.at(off)) << 8) | quint8(payload.at(off + 1));
@@ -153,13 +289,13 @@ QList<EqBand> decodeUserEq(const QByteArray &payload)
 
 QByteArray encodeUserEq(const QList<EqBand> &bands)
 {
-    if (bands.size() != 5) {
+    if (bands.isEmpty() || bands.size() > 32) {
         return QByteArray();
     }
     QByteArray out;
-    out.reserve(39);
+    out.reserve(4 + bands.size() * 7);
     out.append(char(0x00));
-    out.append(char(0x04)); // start band / end band header, as emitted by the firmware
+    out.append(char((bands.size() - 1) & 0xFF)); // first band .. last band, as the firmware sends it
     out.append(char(0x00));
     out.append(char(0x00));
     for (const EqBand &band : bands) {
@@ -232,7 +368,7 @@ MoondropDevice::MoondropDevice(QObject *parent, Transport *transport)
             band.insert(QStringLiteral("type"), object.value(QStringLiteral("type")).toInt());
             list.append(band);
         }
-        if (list.size() == 5) {
+        if (!list.isEmpty()) {
             m_deviceEqBackup = list;
         }
     }
@@ -622,6 +758,7 @@ void MoondropDevice::clearDeviceInfo()
     m_features.clear();
     m_featuresKnown = false;
     m_peqBandCount = 0;
+    m_lastWrittenEq.clear();
 
     // fall back to the pre-detection profile for the configured address (or the
     // unknown one when nothing is selected)
@@ -656,6 +793,17 @@ void MoondropDevice::clearDeviceInfo()
     m_dacGain = -1;
     m_multipointSupported = false;
     m_multipointEnabled = false;
+    m_extras.clear();
+    m_extraAbsent.clear();
+    m_featureVersions.clear();
+    m_ancSwitch.clear();
+    m_mpDevices.clear();
+    m_mpTimeout = -1;
+    m_gestures.clear();
+    m_gesturePending.clear();
+    m_gesturesSupported.clear();
+    m_contextsSupported.clear();
+    m_actionsSupported.clear();
 
     // the parser may hold half a frame from the old link
     m_stream.clear();
@@ -671,6 +819,10 @@ void MoondropDevice::clearDeviceInfo()
     Q_EMIT ancModeChanged();
     Q_EMIT eqChanged();
     Q_EMIT codecChanged();
+    Q_EMIT extraChanged();
+    Q_EMIT ancSwitchChanged();
+    Q_EMIT multipointChanged();
+    Q_EMIT gesturesChanged();
 }
 
 void MoondropDevice::setState(State state)
@@ -1155,6 +1307,13 @@ void MoondropDevice::handleFrame(const Frame &frame)
 
 void MoondropDevice::handleResponse(const Frame &frame)
 {
+    // A GAIA error frame carries a status byte, not data.  Parsing it as a
+    // value would store nonsense (e.g. an enabled LED that is unsupported).
+    const bool rejected = frame.type() == TypeError;
+    if (!rejected) {
+    // Feature-gated extras (LED, timeouts, wind noise, ANC switch config, ...)
+    parseExtra(frame.feature(), frame.cmd(), frame.payload);
+
     switch (frame.feature()) {
     case FeatureBasic:
         switch (frame.cmd()) {
@@ -1294,6 +1453,10 @@ void MoondropDevice::handleResponse(const Frame &frame)
         }
         break;
 
+    case FeatureGesture:
+        parseGestureFrame(frame.cmd(), frame.payload);
+        break;
+
     case FeatureOneBringTwo:
         if (frame.cmd() == CMultipointGet) {
             m_multipointSupported = true;
@@ -1302,6 +1465,13 @@ void MoondropDevice::handleResponse(const Frame &frame)
             }
             Q_EMIT capabilitiesChanged();
             Q_EMIT codecChanged();
+        } else if (frame.cmd() == CMultipointGetTimeout) {
+            if (!frame.payload.isEmpty()) {
+                m_mpTimeout = int(quint8(frame.payload.at(0)));
+                Q_EMIT multipointChanged();
+            }
+        } else if (frame.cmd() == CMultipointDevices || frame.cmd() == CMultipointNext) {
+            parseMultipointDevice(frame.payload, frame.cmd() == CMultipointDevices);
         }
         break;
 
@@ -1315,18 +1485,42 @@ void MoondropDevice::handleResponse(const Frame &frame)
     default:
         break;
     }
+    } // rejected
+
+    if (rejected) {
+        // A rejected read is the same outcome as silence: the setting is not
+        // usable, so hide it instead of leaving a dead control behind.
+        for (const ExtraSpec &spec : kExtraSpecs) {
+            if (spec.feature != frame.feature() || spec.readCommand != frame.cmd()) {
+                continue;
+            }
+            const QString id = QString::fromLatin1(spec.id);
+            m_extraAbsent.insert(id);
+            Q_EMIT extraChanged();
+        }
+        if (frame.cmd() == 41 && (frame.feature() == FeatureAudioCuration
+                                  || frame.feature() == FeatureAncV2)
+            && !m_ancSwitch.isEmpty()) {
+            m_ancSwitch.clear();
+            Q_EMIT ancSwitchChanged();
+        }
+    }
 
     // release the queue when the answer to the in-flight request arrived
     if (m_hasInFlight && m_inFlight.feature == frame.feature() && m_inFlight.command == frame.cmd()
         && frame.type() != TypeNotification) {
         m_hasInFlight = false;
-        // the command worked, so any earlier complaint is stale
-        clearError();
+        if (rejected) {
+            setError(moondropTr("The headphone rejected the request."));
+        } else {
+            // the command worked, so any earlier complaint is stale
+            clearError();
+        }
         if (m_inFlight.onDone) {
             m_inFlight.onDone();
         }
         Q_EMIT busyChanged();
-        Q_EMIT commandFinished(m_inFlight.what, true);
+        Q_EMIT commandFinished(m_inFlight.what, !rejected);
         pumpQueue();
     }
 }
@@ -1359,8 +1553,24 @@ void MoondropDevice::handleNotification(const Frame &frame)
         // EQ state / preset changed elsewhere (e.g. a button on the headphone)
         if (notificationRefreshAllowed(FeatureMusicProcessing)) {
             send(FeatureMusicProcessing, CEqGetSet, QByteArray(), true, QStringLiteral("eq-set"));
-            send(FeatureMusicProcessing, CEqGetUserConfig, QByteArray("\x00\x04", 2), true,
+            send(FeatureMusicProcessing, CEqGetUserConfig, userEqRangePayload(), true,
                  QStringLiteral("eq-config"));
+        }
+        break;
+    case FeatureAncV2:
+        // mode changed elsewhere (touch gesture); the payload layout was not
+        // recovered, so re-read the current mode instead of parsing it
+        if (notificationRefreshAllowed(FeatureAncV2)) {
+            send(FeatureAncV2, CAncV2GetCurrentMode, QByteArray(), true,
+                 QStringLiteral("anc-v2-mode"));
+        }
+        break;
+    case FeatureOneBringTwo:
+        if (notificationRefreshAllowed(FeatureOneBringTwo)) {
+            send(FeatureOneBringTwo, CMultipointGet, QByteArray(), false,
+                 QStringLiteral("multipoint"));
+            send(FeatureOneBringTwo, CMultipointDevices, QByteArray(), true,
+                 QStringLiteral("mp-refresh"));
         }
         break;
     case FeatureBattery:
@@ -1570,9 +1780,21 @@ void MoondropDevice::refreshDetails()
         enqueue(battery);
     }
     if (hasFeature(FeatureMusicProcessing)) {
+        // Ask for the band count first: five bands on the measured EDGE, ten on
+        // the models the official catalog lists with ten.  The curve read names
+        // the band range, so it waits for the answer (and still runs when the
+        // firmware ignores the count command).
+        Request bandCount;
+        bandCount.feature = FeatureMusicProcessing;
+        bandCount.command = CEqGetBandCount;
+        bandCount.what = QStringLiteral("eq-band-count");
+        // onRequestTick calls onDone after a timeout as well, so one callback
+        // covers both "answered" and "silent"
+        bandCount.onDone = [this] { requestUserEq(); };
+        enqueue(bandCount);
+
         send(FeatureMusicProcessing, CEqGetPresets, QByteArray(), true, QStringLiteral("eq-presets"));
         send(FeatureMusicProcessing, CEqGetSet, QByteArray(), true, QStringLiteral("eq-set"));
-        send(FeatureMusicProcessing, CEqGetUserConfig, QByteArray("\x00\x04", 2), true, QStringLiteral("eq-config"));
     }
     if (hasFeature(FeatureCodecType)) {
         send(FeatureCodecType, CCodecGetLdac, QByteArray(), true, QStringLiteral("ldac"));
@@ -1582,6 +1804,46 @@ void MoondropDevice::refreshDetails()
     }
     if (hasFeature(FeatureOneBringTwo)) {
         send(FeatureOneBringTwo, CMultipointGet, QByteArray(), false, QStringLiteral("multipoint"));
+        send(FeatureOneBringTwo, CMultipointGetTimeout, QByteArray(), true, QStringLiteral("mp-timeout"));
+        send(FeatureOneBringTwo, CMultipointDevices, QByteArray(), true, QStringLiteral("mp-device"));
+    }
+
+    // ANC switch configuration (5 bytes: state, ANC on/off, transparency, order)
+    const quint16 switchFeature = ancSwitchFeature();
+    if (switchFeature != 0) {
+        send(switchFeature, 41, QByteArray(), true, QStringLiteral("anc-switch"));
+    }
+
+    // Subscribe to the features this widget keeps live (BASIC/7 with the feature
+    // id; EDGE acknowledges it with an empty response).  A device that does not
+    // answer costs one short timeout per supported feature.
+    static const quint16 tracked[] = {
+        FeatureAudioCuration, FeatureAncV2, FeatureMusicProcessing, FeatureBattery,
+        FeatureOneBringTwo,
+    };
+    for (quint16 trackedFeature : tracked) {
+        if (!hasFeature(trackedFeature)) {
+            continue;
+        }
+        Request registration;
+        registration.feature = FeatureBasic;
+        registration.command = 7;
+        registration.payload = QByteArray(1, char(trackedFeature));
+        registration.what = QStringLiteral("register-f%1").arg(trackedFeature);
+        registration.timeoutMs = 300;
+        registration.maxAttempts = 1;
+        enqueue(registration);
+    }
+    requestExtras();
+    if (hasFeature(FeatureGesture)) {
+        requestGestureInfo();
+    }
+
+    // The firmware fills this value in late: the early read can still hold the
+    // previous host's address (measured on EDGE), so read it again at the end.
+    if (hasFeature(FeatureBtAddress)) {
+        send(FeatureBtAddress, CBtAddressGet, QByteArray(), true,
+             QStringLiteral("host-address-refresh"));
     }
 
     // noise cancelling exists in three command families: the profile knows which
@@ -1757,12 +2019,19 @@ void MoondropDevice::parseBandCount(const QByteArray &payload)
     if (payload.isEmpty()) {
         return;
     }
-    Q_EMIT eqChanged();
+    // EQ/4 answers with the number of user EQ bands (EDGE: 05, the official
+    // catalog lists ten for some models).  The answer wins over the profile
+    // hint, and the next user EQ read asks for the reported range.
+    const int count = quint8(payload.at(0));
+    if (count > 0 && count <= 32) {
+        m_peqBandCount = count;
+        Q_EMIT eqChanged();
+    }
 }
 
 void MoondropDevice::rememberDeviceEq(const QVariantList &bands)
 {
-    if (bands.size() != 5) {
+    if (bands.isEmpty()) {
         return;
     }
     m_deviceEqBackup = bands;
@@ -1798,6 +2067,12 @@ void MoondropDevice::parseUserEq(const QByteArray &payload)
     if (bands.isEmpty()) {
         return;
     }
+    // the payload is the device's own truth: it settles the band count even
+    // when the firmware does not answer the EQ/4 count command
+    if (m_peqBandCount != bands.size()) {
+        m_peqBandCount = bands.size();
+        Q_EMIT eqChanged();
+    }
     QVariantList list;
     for (const EqBand &band : bands) {
         QVariantMap entry;
@@ -1809,14 +2084,17 @@ void MoondropDevice::parseUserEq(const QByteArray &payload)
     }
     // A read that is not the verification of our own write is the curve the
     // headphone itself is happy with - that is the one worth remembering.
-    if (m_eqWriteTarget.isEmpty()) {
+    // A notification driven re-read also lands here, possibly right after our
+    // write was confirmed; that echo must not overwrite the restore point.
+    if (m_eqWriteTarget.isEmpty() && !bandsMatch(list, m_lastWrittenEq)) {
         rememberDeviceEq(list);
     }
     m_bands = list;
     Q_EMIT eqChanged();
 
-    if (m_eqWriteTarget.size() == 5) {
+    if (!m_eqWriteTarget.isEmpty()) {
         if (bandsMatch(m_bands, m_eqWriteTarget)) {
+            m_lastWrittenEq = m_eqWriteTarget;
             m_eqWriteTarget.clear();
             Q_EMIT eqChanged();
             Q_EMIT commandFinished(QStringLiteral("peq-write"), true);
@@ -1827,7 +2105,7 @@ void MoondropDevice::parseUserEq(const QByteArray &payload)
             Request verify;
             verify.feature = FeatureMusicProcessing;
             verify.command = CEqGetUserConfig;
-            verify.payload = QByteArray("\x00\x04", 2);
+            verify.payload = userEqRangePayload();
             verify.what = QStringLiteral("eq-config");
             enqueue(verify);
         } else {
@@ -1964,7 +2242,7 @@ QVariantList MoondropDevice::availableProfiles() const
     automatic.insert(QStringLiteral("verified"), false);
     list.append(automatic);
     for (const DeviceProfile &profile : deviceProfiles()) {
-        if (profile.id == QLatin1String("unknown")) {
+        if (profile.id == QLatin1String("unknown") || !profile.selectable) {
             continue;
         }
         QVariantMap entry;
@@ -2022,25 +2300,21 @@ void MoondropDevice::parseSupportedFeatures(const QByteArray &payload)
 {
     // The response is a list of (feature id, feature version) pairs.  Some
     // firmwares prefix the list with a status byte, so accept both layouts.
-    QList<int> features;
-    if (!payload.isEmpty() && payload.size() % 2 == 0) {
-        for (int i = 0; i + 1 < payload.size(); i += 2) {
-            features.append(quint8(payload.at(i)));
-        }
-    } else {
-        for (int i = 1; i + 1 < payload.size(); i += 2) {
-            features.append(quint8(payload.at(i)));
-        }
-    }
+    const int start = (!payload.isEmpty() && payload.size() % 2 == 0) ? 0 : 1;
     m_supportedFeatures.clear();
+    m_featureVersions.clear();
     QVariantList list;
-    for (int feature : features) {
+    for (int i = start; i + 1 < payload.size(); i += 2) {
+        const int feature = quint8(payload.at(i));
+        const int version = quint8(payload.at(i + 1));
         if (feature < 0 || feature > 64) {
             continue;
         }
         m_supportedFeatures.insert(quint16(feature));
+        m_featureVersions.insert(quint16(feature), quint8(version));
         QVariantMap entry;
         entry.insert(QStringLiteral("id"), feature);
+        entry.insert(QStringLiteral("version"), version);
         entry.insert(QStringLiteral("name"), Moondrop::featureName(quint16(feature)));
         list.append(entry);
     }
@@ -2089,7 +2363,7 @@ void MoondropDevice::applyAncMode(int mode, bool userAction)
                                                                : FeatureAnc;
     const quint8 command = (m_ancPath == AncPathAudioCuration) ? CAcSetMode
                            : (m_ancPath == AncPathAncV2)       ? CAncV2SetCurrentMode
-                                                               : CAncGetState;
+                                                               : CAncSetState;
     if (userAction) {
         prepareUserAction();
         // The firmware does not acknowledge this command, so update optimistically
@@ -2224,7 +2498,28 @@ void MoondropDevice::enqueuePresetSelect(int presetId)
 
 void MoondropDevice::requestUserEq()
 {
-    send(FeatureMusicProcessing, CEqGetUserConfig, QByteArray("\x00\x04", 2), true, QStringLiteral("eq-config"));
+    send(FeatureMusicProcessing, CEqGetUserConfig, userEqRangePayload(), true, QStringLiteral("eq-config"));
+}
+
+int MoondropDevice::userEqBandCount() const
+{
+    if (m_peqBandCount > 0) {
+        return m_peqBandCount;
+    }
+    if (m_profile.eqBands > 0) {
+        return m_profile.eqBands;
+    }
+    return 5;
+}
+
+QByteArray MoondropDevice::userEqRangePayload() const
+{
+    // the read request names the first and the last band; EDGE answers "00 04"
+    // for its five bands, a ten band model expects "00 09"
+    QByteArray payload;
+    payload.append(char(0));
+    payload.append(char((userEqBandCount() - 1) & 0xFF));
+    return payload;
 }
 
 void MoondropDevice::applyUserEq(const QVariantList &bands, bool selectCustom)
@@ -2236,18 +2531,33 @@ void MoondropDevice::applyUserEq(const QVariantList &bands, bool selectCustom)
 
 void MoondropDevice::applyUserEqInternal(const QVariantList &bands, bool selectCustom, bool snapshot)
 {
-    if (bands.size() != 5) {
-        setError(moondropTr("The parametric EQ needs exactly 5 bands."));
+    if (bands.isEmpty() || bands.size() != userEqBandCount()) {
+        setError(moondropTr("The parametric EQ needs exactly %1 bands.").arg(userEqBandCount()));
         return;
+    }
+    // Clamp once, up front: the verification read compares against the values
+    // that were actually written, not the out-of-range input (which would make
+    // every clamped write look rejected).
+    QVariantList clamped;
+    for (const QVariant &item : bands) {
+        QVariantMap band = item.toMap();
+        band.insert(QStringLiteral("frequency"),
+                    qBound(20, band.value(QStringLiteral("frequency"), 1000).toInt(), 20000));
+        band.insert(QStringLiteral("q"),
+                    qBound(m_profile.qMin, band.value(QStringLiteral("q"), 1.0).toDouble(), m_profile.qMax));
+        band.insert(QStringLiteral("gain"),
+                    qBound(m_profile.gainMin, band.value(QStringLiteral("gain"), 0.0).toDouble(),
+                           m_profile.gainMax));
+        clamped.append(band);
     }
     prepareUserAction();
     // anything we are about to overwrite becomes the restore point
-    if (snapshot && m_bands.size() == 5 && !bandsMatch(m_bands, bands)) {
+    if (snapshot && !m_bands.isEmpty() && !bandsMatch(m_bands, clamped)) {
         rememberDeviceEq(m_bands);
     }
-    m_eqWriteTarget = bands;
+    m_eqWriteTarget = clamped;
     m_eqWriteAttempts = 0;
-    writeEqPayload(bands);
+    writeEqPayload(clamped);
 
     if (selectCustom) {
         // appended after the write, which is still queued behind the in-flight
@@ -2258,7 +2568,7 @@ void MoondropDevice::applyUserEqInternal(const QVariantList &bands, bool selectC
     Request verify;
     verify.feature = FeatureMusicProcessing;
     verify.command = CEqGetUserConfig;
-    verify.payload = QByteArray("\x00\x04", 2);
+    verify.payload = userEqRangePayload();
     verify.what = QStringLiteral("eq-config");
     enqueue(verify);
 }
@@ -2270,8 +2580,10 @@ void MoondropDevice::writeEqPayload(const QVariantList &bands)
         const QVariantMap map = item.toMap();
         EqBand band;
         band.frequency = map.value(QStringLiteral("frequency"), 1000).toInt();
-        band.q = map.value(QStringLiteral("q"), 1.0).toDouble();
-        band.gain = map.value(QStringLiteral("gain"), 0.0).toDouble();
+        // the catalog's limits for the model; defaults are what EDGE accepts
+        band.q = qBound(m_profile.qMin, map.value(QStringLiteral("q"), 1.0).toDouble(), m_profile.qMax);
+        band.gain = qBound(m_profile.gainMin, map.value(QStringLiteral("gain"), 0.0).toDouble(),
+                           m_profile.gainMax);
         band.type = map.value(QStringLiteral("type"), 0).toInt();
         list.append(band);
     }
@@ -2285,7 +2597,7 @@ void MoondropDevice::writeEqPayload(const QVariantList &bands)
     write.command = CEqSetUserConfig;
     write.payload = payload;
     write.expectReply = false;
-    write.timeoutMs = 800; // the firmware needs a moment for a 39 byte write
+    write.timeoutMs = 800; // the firmware needs a moment for the block write
     write.maxAttempts = 1;
     write.what = QStringLiteral("peq-write");
     enqueue(write);
@@ -2360,6 +2672,550 @@ void MoondropDevice::setMultipointEnabled(bool enabled)
     send(FeatureOneBringTwo, CMultipointSet, QByteArray(1, char(enabled ? 1 : 0)), false, QStringLiteral("multipoint-set"));
     m_multipointEnabled = enabled;
     Q_EMIT codecChanged();
+}
+
+// ---------------------------------------------------------------------------
+// Extra settings (official app's feature-gated parameters, PROTOCOL 13.4)
+// ---------------------------------------------------------------------------
+
+QVariantList MoondropDevice::extraSettings() const
+{
+    QVariantList list;
+    for (const ExtraSpec &spec : kExtraSpecs) {
+        const QString id = QString::fromLatin1(spec.id);
+        if (!extraSupported(id)) {
+            continue;
+        }
+        QVariantMap entry;
+        entry.insert(QStringLiteral("id"), id);
+        entry.insert(QStringLiteral("label"), extraLabel(id));
+        entry.insert(QStringLiteral("kind"), spec.boolean ? QStringLiteral("bool") : QStringLiteral("int"));
+        entry.insert(QStringLiteral("value"),
+                     m_extras.value(id, spec.boolean ? QVariant(false) : QVariant(0)));
+        entry.insert(QStringLiteral("min"), 0);
+        entry.insert(QStringLiteral("max"), spec.maximum);
+        // always present: QML bindings are evaluated even for rows that are
+        // hidden by their kind, and reading an undefined list logs a TypeError
+        entry.insert(QStringLiteral("options"), QVariantList());
+        if (id == QLatin1String("autoTransparencyRelease")) {
+            // AutoTransparencyReleaseTime enum values (PROTOCOL 13.5)
+            entry.insert(QStringLiteral("kind"), QStringLiteral("enum"));
+            QVariantList options;
+            const QList<QPair<int, QString>> values{
+                {0, moondropTr("Off")},
+                {1, moondropTr("Short release")},
+                {2, moondropTr("Normal release")},
+                {3, moondropTr("Long release")},
+            };
+            for (const auto &value : values) {
+                QVariantMap option;
+                option.insert(QStringLiteral("id"), value.first);
+                option.insert(QStringLiteral("label"), value.second);
+                options.append(option);
+            }
+            entry.insert(QStringLiteral("options"), options);
+        }
+        list.append(entry);
+    }
+    return list;
+}
+
+bool MoondropDevice::extraSupported(const QString &id) const
+{
+    // Without the capability list (probe timed out) nothing is known to be
+    // supported; do not show defaults or probe every feature blindly.
+    if (!m_featuresKnown) {
+        return false;
+    }
+    if (m_extraAbsent.contains(id)) {
+        return false;
+    }
+    // The official app gates these on the feature version from the capability
+    // list: wind noise needs AudioCuration >= 2, auto transparency >= 4.
+    const quint8 acVersion = m_featureVersions.value(FeatureAudioCuration, 0);
+    if (id == QLatin1String("windNoise")) {
+        return hasFeature(FeatureAudioCuration) && acVersion >= 2;
+    }
+    if (id == QLatin1String("autoTransparency") || id == QLatin1String("autoTransparencyRelease")) {
+        return hasFeature(FeatureAudioCuration) && acVersion >= 4;
+    }
+    if (id == QLatin1String("acGain")) {
+        // EDGE (AudioCuration v1) does not answer 8/5 at all (PROTOCOL 5); the
+        // gain commands belong to the later AudioCuration revisions.
+        return hasFeature(FeatureAudioCuration) && acVersion >= 2;
+    }
+    for (const ExtraSpec &spec : kExtraSpecs) {
+        if (id == QLatin1String(spec.id)) {
+            return hasFeature(spec.feature);
+        }
+    }
+    return false;
+}
+
+void MoondropDevice::requestExtras()
+{
+    if (!m_transport->isConnected()) {
+        return;
+    }
+    for (const ExtraSpec &spec : kExtraSpecs) {
+        const QString id = QString::fromLatin1(spec.id);
+        if (!extraSupported(id)) {
+            continue;
+        }
+        // Probe with a short deadline: a firmware that does not implement the
+        // feature is remembered for this connection instead of costing a full
+        // retry on every refresh.
+        Request request;
+        request.feature = spec.feature;
+        request.command = spec.readCommand;
+        request.what = QStringLiteral("extra-%1").arg(id);
+        request.timeoutMs = 600;
+        request.maxAttempts = 1;
+        request.onTimeout = [this, id] {
+            m_extraAbsent.insert(id);
+            Q_EMIT extraChanged();
+        };
+        enqueue(request);
+    }
+}
+
+bool MoondropDevice::parseExtra(quint16 feature, quint8 command, const QByteArray &payload)
+{
+    if (payload.isEmpty()) {
+        return false;
+    }
+    // ANC switch configuration (AudioCuration/ANC V2 41): five bytes.
+    if (command == 41 && (feature == FeatureAudioCuration || feature == FeatureAncV2)
+        && payload.size() >= 5) {
+        m_ancSwitch = payload.left(5);
+        Q_EMIT ancSwitchChanged();
+        return true;
+    }
+    for (const ExtraSpec &spec : kExtraSpecs) {
+        if (spec.feature != feature || spec.readCommand != command) {
+            continue;
+        }
+        const QString id = QString::fromLatin1(spec.id);
+        if (id == QLatin1String("powerOffTimeout") || id == QLatin1String("standbyTimeout")) {
+            // [enabled][minutes]; 0 = never
+            if (payload.size() < 2) {
+                return true;
+            }
+            m_extras.insert(id, quint8(payload.at(0)) != 0 ? int(quint8(payload.at(1))) : 0);
+        } else if (id == QLatin1String("acGain")) {
+            // [mode][feature type][left][right]; the UI writes both ears equally
+            if (payload.size() >= 4) {
+                m_extras.insert(id, int(quint8(payload.at(2))));
+            }
+        } else if (spec.boolean) {
+            m_extras.insert(id, quint8(payload.at(0)) != 0);
+        } else {
+            m_extras.insert(id, int(quint8(payload.at(0))));
+        }
+        Q_EMIT extraChanged();
+        return true;
+    }
+    return false;
+}
+
+void MoondropDevice::writeExtra(const QString &id, const QVariant &value)
+{
+    if (!m_transport->isConnected() || !extraSupported(id)) {
+        return;
+    }
+    const ExtraSpec *spec = nullptr;
+    for (const ExtraSpec &candidate : kExtraSpecs) {
+        if (id == QLatin1String(candidate.id)) {
+            spec = &candidate;
+            break;
+        }
+    }
+    if (!spec) {
+        return;
+    }
+
+    QByteArray payload;
+    if (id == QLatin1String("powerOffTimeout") || id == QLatin1String("standbyTimeout")) {
+        // [enabled][minutes]
+        const int minutes = qBound(0, value.toInt(), 255);
+        payload.append(char(minutes > 0 ? 1 : 0));
+        payload.append(char(minutes));
+    } else if (id == QLatin1String("acGain")) {
+        const int gain = qBound(0, value.toInt(), 255);
+        payload.append(char(gain));
+        payload.append(char(gain));
+    } else if (spec->boolean) {
+        payload.append(char(value.toBool() ? 1 : 0));
+    } else {
+        payload.append(char(qBound(0, value.toInt(), spec->maximum)));
+    }
+
+    prepareUserAction();
+    send(spec->feature, spec->writeCommand, payload, false, QStringLiteral("extra-write"));
+    // optimistic update, then read back (the firmware does not acknowledge these)
+    m_extras.insert(id, value);
+    Q_EMIT extraChanged();
+    send(spec->feature, spec->readCommand, QByteArray(), true, QStringLiteral("extra-verify"));
+}
+
+void MoondropDevice::setExtra(const QString &id, const QVariant &value)
+{
+    writeExtra(id, value);
+}
+
+quint16 MoondropDevice::ancSwitchFeature() const
+{
+    const bool hasAc = hasFeature(FeatureAudioCuration);
+    const bool hasV2 = hasFeature(FeatureAncV2);
+    if (m_profile.ancPath == AncPathAncV2 && hasV2) {
+        return FeatureAncV2;
+    }
+    if (hasAc) {
+        return FeatureAudioCuration;
+    }
+    if (hasV2) {
+        return FeatureAncV2;
+    }
+    return 0;
+}
+
+QVariantMap MoondropDevice::ancSwitchConfig() const
+{
+    QVariantMap map;
+    map.insert(QStringLiteral("present"), m_ancSwitch.size() >= 5);
+    if (m_ancSwitch.size() >= 5) {
+        map.insert(QStringLiteral("state"), quint8(m_ancSwitch.at(0)) != 0);
+        map.insert(QStringLiteral("ancOn"), quint8(m_ancSwitch.at(1)) != 0);
+        map.insert(QStringLiteral("ancOff"), quint8(m_ancSwitch.at(2)) != 0);
+        map.insert(QStringLiteral("transparency"), quint8(m_ancSwitch.at(3)) != 0);
+        map.insert(QStringLiteral("order"), int(quint8(m_ancSwitch.at(4))));
+    }
+    return map;
+}
+
+void MoondropDevice::setAncSwitchConfig(bool state, bool ancOn, bool ancOff, bool transparency, int order)
+{
+    const quint16 feature = ancSwitchFeature();
+    if (feature == 0 || !m_transport->isConnected()) {
+        return;
+    }
+    QByteArray payload;
+    payload.append(char(state ? 1 : 0));
+    payload.append(char(ancOn ? 1 : 0));
+    payload.append(char(ancOff ? 1 : 0));
+    payload.append(char(transparency ? 1 : 0));
+    payload.append(char(qBound(0, order, 5)));
+    prepareUserAction();
+    send(feature, 42, payload, false, QStringLiteral("anc-switch-set"));
+    send(feature, 41, QByteArray(), true, QStringLiteral("anc-switch-verify"));
+}
+
+void MoondropDevice::parseMultipointDevice(const QByteArray &payload, bool first)
+{
+    if (first) {
+        m_mpDevices.clear();
+    }
+    // [number][6 byte address][name UTF-8]; an empty answer means "none left"
+    if (payload.size() < 7) {
+        if (first) {
+            Q_EMIT multipointChanged();
+        }
+        return;
+    }
+    const int number = quint8(payload.at(0));
+    const QString address = macFromBytes(payload.mid(1, 6));
+    const QString name = QString::fromUtf8(payload.mid(7));
+    for (int i = 0; i < m_mpDevices.size(); ++i) {
+        if (m_mpDevices.at(i).toMap().value(QStringLiteral("number")).toInt() == number) {
+            m_mpDevices.removeAt(i);
+            break;
+        }
+    }
+    QVariantMap device;
+    device.insert(QStringLiteral("number"), number);
+    device.insert(QStringLiteral("address"), address);
+    device.insert(QStringLiteral("name"), name);
+    m_mpDevices.append(device);
+    Q_EMIT multipointChanged();
+}
+
+void MoondropDevice::requestNextMultipointDevice()
+{
+    send(FeatureOneBringTwo, CMultipointNext, QByteArray(), true, QStringLiteral("mp-next"));
+}
+
+void MoondropDevice::disconnectMultipointDevice(int deviceNumber)
+{
+    if (!m_transport->isConnected()) {
+        return;
+    }
+    send(FeatureOneBringTwo, CMultipointDisconnect, QByteArray(1, char(deviceNumber)), false,
+         QStringLiteral("mp-disconnect"));
+    // refresh the list from the device instead of trusting the local copy
+    send(FeatureOneBringTwo, CMultipointDevices, QByteArray(), true, QStringLiteral("mp-refresh"));
+}
+
+// ---------------------------------------------------------------------------
+// Button gestures (GAIA feature 11)
+// ---------------------------------------------------------------------------
+
+QVariantList MoondropDevice::gestureActionOptions() const
+{
+    QList<int> ids;
+    for (int id : m_actionsSupported) {
+        ids.append(id);
+    }
+    std::sort(ids.begin(), ids.end());
+    QVariantList list;
+    for (int id : ids) {
+        QVariantMap option;
+        option.insert(QStringLiteral("id"), id);
+        option.insert(QStringLiteral("label"), gestureActionLabel(id));
+        list.append(option);
+    }
+    return list;
+}
+
+void MoondropDevice::requestGestureInfo()
+{
+    if (!m_transport->isConnected() || !hasFeature(FeatureGesture)) {
+        return;
+    }
+    // A previous read may have been interrupted (queue cleared by a user action
+    // or a page timeout); a fresh read must not append to that leftover.
+    m_gesturePending.clear();
+    // The app fetches these four lists together, then one request per gesture.
+    static const quint8 commands[] = {
+        CGestureTouchpads, CGestureSupportedGestures, CGestureSupportedContexts,
+        CGestureSupportedActions,
+    };
+    for (quint8 command : commands) {
+        send(FeatureGesture, command, QByteArray(), true,
+             QStringLiteral("gesture-info-%1").arg(command));
+    }
+}
+
+bool MoondropDevice::parseGestureFrame(quint8 command, const QByteArray &payload)
+{
+    if (command == CGestureTouchpads) {
+        // touchpad configuration type; the touchpads themselves arrive inside
+        // every configuration entry
+        return true;
+    }
+    if (command == CGestureSupportedGestures || command == CGestureSupportedContexts
+        || command == CGestureSupportedActions) {
+        QSet<int> &target = command == CGestureSupportedGestures ? m_gesturesSupported
+                            : command == CGestureSupportedContexts ? m_contextsSupported
+                                                                    : m_actionsSupported;
+        target.clear();
+        for (int id : bitmapIds(payload)) {
+            target.insert(id);
+        }
+        if (command == CGestureSupportedGestures) {
+            // one configuration read per gesture, starting at offset 0
+            for (int id : bitmapIds(payload)) {
+                Request config;
+                config.feature = FeatureGesture;
+                config.command = CGestureGetConfiguration;
+                QByteArray request;
+                request.append(char(id));
+                request.append(char(0));
+                config.payload = request;
+                config.what = QStringLiteral("gesture-config-%1").arg(id);
+                config.timeoutMs = 600;
+                config.maxAttempts = 1;
+                config.onTimeout = [this, id] { m_gesturePending.remove(id); };
+                enqueue(config);
+            }
+        }
+        Q_EMIT gesturesChanged();
+        return true;
+    }
+    if (command == CGestureGetConfiguration) {
+        if (payload.isEmpty()) {
+            return true;
+        }
+        const quint8 first = quint8(payload.at(0));
+        const int gestureId = first & 0x7F;
+        const bool more = (first & 0x80) != 0;
+        QVariantList &pending = m_gesturePending[gestureId];
+        for (int i = 1; i + 1 < payload.size(); i += 2) {
+            const quint16 value = quint16((quint16(quint8(payload.at(i))) << 8)
+                                          | quint16(quint8(payload.at(i + 1))));
+            QVariantMap entry;
+            entry.insert(QStringLiteral("touchpad"), int((value >> 14) & 0x03));
+            entry.insert(QStringLiteral("context"), int((value >> 7) & 0x7F));
+            entry.insert(QStringLiteral("action"), int(value & 0x7F));
+            pending.append(entry);
+        }
+        if (more) {
+            QByteArray request;
+            request.append(char(gestureId));
+            request.append(char(pending.size() & 0xFF));
+            Request next;
+            next.feature = FeatureGesture;
+            next.command = CGestureGetConfiguration;
+            next.payload = request;
+            next.what = QStringLiteral("gesture-config-%1-next").arg(gestureId);
+            next.timeoutMs = 600;
+            next.maxAttempts = 1;
+            next.onTimeout = [this, gestureId] { m_gesturePending.remove(gestureId); };
+            enqueue(next);
+            return true;
+        }
+
+        // decorate the accumulated entries for the UI
+        QVariantList decorated;
+        for (const QVariant &item : pending) {
+            QVariantMap entry = item.toMap();
+            const int touchpad = entry.value(QStringLiteral("touchpad")).toInt();
+            const int context = entry.value(QStringLiteral("context")).toInt();
+            const int action = entry.value(QStringLiteral("action")).toInt();
+            entry.insert(QStringLiteral("touchpadLabel"), gestureTouchpadLabel(touchpad));
+            entry.insert(QStringLiteral("contextLabel"), gestureContextLabel(context));
+            entry.insert(QStringLiteral("actionLabel"), gestureActionLabel(action));
+            decorated.append(entry);
+        }
+        QVariantMap row;
+        row.insert(QStringLiteral("id"), gestureId);
+        row.insert(QStringLiteral("label"), gestureLabel(gestureId));
+        row.insert(QStringLiteral("entries"), decorated);
+        bool replaced = false;
+        for (int i = 0; i < m_gestures.size(); ++i) {
+            if (m_gestures.at(i).toMap().value(QStringLiteral("id")).toInt() == gestureId) {
+                m_gestures[i] = row;
+                replaced = true;
+                break;
+            }
+        }
+        if (!replaced) {
+            m_gestures.append(row);
+        }
+        m_gesturePending.remove(gestureId);
+        Q_EMIT gesturesChanged();
+        return true;
+    }
+    if (command == CGestureReset) {
+        m_gestures.clear();
+        m_gesturePending.clear();
+        // re-read is scheduled by resetGestureConfiguration(); answering here
+        // must not schedule a second one
+        return true;
+    }
+    return false;
+}
+
+void MoondropDevice::sendGestureConfiguration(int gestureId)
+{
+    const QVariantList entries = [&] {
+        for (const QVariant &row : m_gestures) {
+            const QVariantMap map = row.toMap();
+            if (map.value(QStringLiteral("id")).toInt() == gestureId) {
+                return map.value(QStringLiteral("entries")).toList();
+            }
+        }
+        return QVariantList();
+    }();
+    if (entries.isEmpty()) {
+        return;
+    }
+
+    QList<quint16> values;
+    for (const QVariant &item : entries) {
+        const QVariantMap entry = item.toMap();
+        const quint16 value = quint16(int(entry.value(QStringLiteral("action")).toInt()) & 0x7F)
+                              | quint16(int(entry.value(QStringLiteral("context")).toInt() & 0x7F) << 7)
+                              | quint16(int(entry.value(QStringLiteral("touchpad")).toInt() & 0x03) << 14);
+        values.append(value);
+    }
+
+    // One packet per 16 pairs keeps the payload well below the transport limits
+    // the app negotiates; the more bit tells the device to append the next chunk.
+    const int chunk = 16;
+    int offset = 0;
+    do {
+        const int remaining = values.size() - offset;
+        const int count = qMin(chunk, remaining);
+        const bool more = remaining > count;
+        QByteArray payload;
+        payload.append(char((gestureId & 0x7F) | (more ? 0x80 : 0)));
+        payload.append(char(offset & 0xFF));
+        for (int i = 0; i < count; ++i) {
+            const quint16 value = values.at(offset + i);
+            payload.append(char((value >> 8) & 0xFF));
+            payload.append(char(value & 0xFF));
+        }
+        send(FeatureGesture, CGestureSetConfiguration, payload, false,
+             QStringLiteral("gesture-set-%1").arg(gestureId));
+        offset += count;
+    } while (offset < values.size());
+
+    // read back the first page: the device does not acknowledge the write
+    QByteArray verify;
+    verify.append(char(gestureId));
+    verify.append(char(0));
+    send(FeatureGesture, CGestureGetConfiguration, verify, true,
+         QStringLiteral("gesture-verify-%1").arg(gestureId));
+}
+
+void MoondropDevice::setGestureAction(int gestureId, int touchpad, int context, int action)
+{
+    if (!m_transport->isConnected()) {
+        return;
+    }
+    for (int i = 0; i < m_gestures.size(); ++i) {
+        QVariantMap row = m_gestures.at(i).toMap();
+        if (row.value(QStringLiteral("id")).toInt() != gestureId) {
+            continue;
+        }
+        QVariantList entries = row.value(QStringLiteral("entries")).toList();
+        bool updated = false;
+        for (int j = 0; j < entries.size(); ++j) {
+            QVariantMap entry = entries.at(j).toMap();
+            if (entry.value(QStringLiteral("touchpad")).toInt() == touchpad
+                && entry.value(QStringLiteral("context")).toInt() == context) {
+                entry.insert(QStringLiteral("action"), action);
+                entry.insert(QStringLiteral("actionLabel"), gestureActionLabel(action));
+                entries[j] = entry;
+                updated = true;
+                break;
+            }
+        }
+        if (!updated) {
+            QVariantMap entry;
+            entry.insert(QStringLiteral("touchpad"), touchpad);
+            entry.insert(QStringLiteral("context"), context);
+            entry.insert(QStringLiteral("action"), action);
+            entry.insert(QStringLiteral("touchpadLabel"), gestureTouchpadLabel(touchpad));
+            entry.insert(QStringLiteral("contextLabel"), gestureContextLabel(context));
+            entry.insert(QStringLiteral("actionLabel"), gestureActionLabel(action));
+            entries.append(entry);
+        }
+        row.insert(QStringLiteral("entries"), entries);
+        m_gestures[i] = row;
+        Q_EMIT gesturesChanged();
+        prepareUserAction();
+        sendGestureConfiguration(gestureId);
+        return;
+    }
+}
+
+void MoondropDevice::resetGestureConfiguration()
+{
+    if (!m_transport->isConnected()) {
+        return;
+    }
+    prepareUserAction();
+    m_gestures.clear();
+    m_gesturePending.clear();
+    send(FeatureGesture, CGestureReset, QByteArray(), false, QStringLiteral("gesture-reset"));
+    // The firmware may or may not answer the reset; the mappings are only
+    // trustworthy after a fresh read, so schedule it either way.
+    QTimer::singleShot(300, this, [this] {
+        if (m_transport->isConnected()) {
+            requestGestureInfo();
+        }
+    });
 }
 
 QString MoondropDevice::presetName(int presetId) const

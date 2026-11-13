@@ -11,6 +11,8 @@
 #include "gaia.h"
 #include "transport.h"
 
+#include <QHash>
+#include <QList>
 #include <QObject>
 #include <QTimer>
 
@@ -33,7 +35,8 @@ public:
     // Edge / Pudding / Robin follow the measured or published captures; AncV1 is
     // a minimal device that only implements the ANC V1 family (feature 2), which
     // no measured model here does - it exists so that path has any coverage.
-    enum Model { Edge, Pudding, Robin, AncV1 };
+    // Rich implements every extra feature the widget knows about (PROTOCOL 13).
+    enum Model { Edge, Pudding, Robin, Rich, AncV1 };
 
     explicit FakeHeadset(Model model = Edge, QObject *parent = nullptr)
         : Transport(parent)
@@ -110,6 +113,8 @@ public:
     // Pretend a different headphone is now connected (used by the switch check:
     // one widget, the user swaps headphones).
     void setModel(Model model) { m_model = model; }
+    // Simulates a firmware that answers a read with a GAIA error frame.
+    void setRejectLedReads(bool reject) { m_rejectLedReads = reject; }
 
     // Model "somebody else holds the single control connection": every connect
     // attempt fails with EBUSY, like a real headphone whose slot is taken.
@@ -145,6 +150,18 @@ public:
     }
 
 private:
+    QList<quint16> ensureGestureConfigs(int gesture)
+    {
+        if (!m_gestureConfigs.contains(gesture)) {
+            QList<quint16> configs;
+            for (int context = 0; context < 9; ++context) {
+                configs.append(quint16(context << 7)); // touchpad 0, action 0
+            }
+            m_gestureConfigs.insert(gesture, configs);
+        }
+        return m_gestureConfigs.value(gesture);
+    }
+
     void respond(const Frame &sent)
     {
         const quint16 feature = sent.feature();
@@ -160,6 +177,13 @@ private:
                     reply(feature, 1, QByteArray::fromHex("00010120010d011001"));
                 } else if (m_model == Robin) {
                     reply(feature, 1, QByteArray::fromHex("000108010d01"));
+                } else if (m_model == Rich) {
+                    // BASIC 3, ANC 1, EQ 1, AUDIO_CURATION 4, BATTERY 1,
+                    // DAC_GAIN 1, CODEC 1, LIGHT_SENSOR 1, SPATIAL 1, LED 1,
+                    // ONEBRINGTWO 1, BT_ADDRESS 1, POWER_TIMEOUT 1, DYBASS 1,
+                    // LR_CHANNEL 1, GESTURES 1
+                    reply(feature, 1, QByteArray::fromHex(
+                                           "00030201050108040b010d0110011101120113011401150119011b011e01"));
                 } else if (m_model == AncV1) {
                     // BASIC, BATTERY, ANC - deliberately no AUDIO_CURATION / ANC V2
                     reply(feature, 1, QByteArray::fromHex("000101010201"));
@@ -171,13 +195,23 @@ private:
                 reply(feature, 3, QByteArray("ABCDEF0123456789"));
                 return;
             case 4:
-                reply(feature, 4, m_model == Pudding ? QByteArray("MOONDROP Pudding")
-                                        : m_model == Robin ? QByteArray("MOONDROP Robin")
-                                        : m_model == AncV1 ? QByteArray("MOONDROP Space Travel")
-                                                           : QByteArray("MOONDROP EDGE"));
+                if (m_model == Pudding) {
+                    reply(feature, 4, QByteArray("MOONDROP Pudding"));
+                } else if (m_model == Robin) {
+                    reply(feature, 4, QByteArray("MOONDROP Robin"));
+                } else if (m_model == Rich) {
+                    reply(feature, 4, QByteArray("MOONDROP Test"));
+                } else if (m_model == AncV1) {
+                    reply(feature, 4, QByteArray("MOONDROP Space Travel"));
+                } else {
+                    reply(feature, 4, QByteArray("MOONDROP EDGE"));
+                }
                 return;
             case 5:
-                reply(feature, 5, QByteArray("1.4.0"));
+                reply(feature, 5, m_model == Rich ? QByteArray("9.9.9") : QByteArray("1.4.0"));
+                return;
+            case 7: // notification registration: acknowledged with no payload
+                reply(feature, 7, QByteArray());
                 return;
             case 22:
                 if (m_model == Edge) {
@@ -209,7 +243,7 @@ private:
             return;
         }
 
-        if (feature == FeatureMusicProcessing && m_model == Edge) {
+        if (feature == FeatureMusicProcessing && (m_model == Edge || m_model == Rich)) {
             switch (command) {
             case 0:
                 reply(feature, 0, QByteArray(1, '\x01'));
@@ -247,6 +281,14 @@ private:
         }
 
         if (feature == FeatureAudioCuration) {
+            if (command == 41) {
+                reply(feature, 41, m_ancSwitch);
+                return;
+            }
+            if (command == 42 && sent.payload.size() >= 5) {
+                m_ancSwitch = sent.payload.left(5);
+                return;
+            }
             if (command == 3) {
                 QByteArray payload(4, '\x00');
                 payload[0] = char(quint8(uiModeToReadValue(m_ancMode)));
@@ -258,16 +300,66 @@ private:
                     applyAncMode(mode);
                 }
                 acknowledgeAncSet(feature, command);
+            } else if (m_model == Rich) {
+                switch (command) {
+                case 5: { // [mode][feature type][left gain][right gain]
+                    QByteArray payload(4, '\x00');
+                    payload[1] = '\x01';
+                    payload[2] = char(quint8(m_acGain));
+                    payload[3] = char(quint8(m_acGain));
+                    reply(feature, 5, payload);
+                    return;
+                }
+                case 6: // [left][right]
+                    if (sent.payload.size() >= 2) {
+                        m_acGain = quint8(sent.payload.at(0));
+                    }
+                    return;
+                case 23:
+                    reply(feature, 23, QByteArray(1, char(m_wind ? 1 : 0)));
+                    return;
+                case 24:
+                    if (!sent.payload.isEmpty()) {
+                        m_wind = quint8(sent.payload.at(0)) != 0;
+                    }
+                    return;
+                case 26:
+                    reply(feature, 26, QByteArray(1, char(m_autoTransparency ? 1 : 0)));
+                    return;
+                case 27:
+                    if (!sent.payload.isEmpty()) {
+                        m_autoTransparency = quint8(sent.payload.at(0)) != 0;
+                    }
+                    return;
+                case 28:
+                    reply(feature, 28, QByteArray(1, char(quint8(m_autoRelease))));
+                    return;
+                case 29:
+                    if (!sent.payload.isEmpty()) {
+                        m_autoRelease = quint8(sent.payload.at(0));
+                    }
+                    return;
+                case 41:
+                    reply(feature, 41, m_ancSwitch);
+                    return;
+                case 42:
+                    if (sent.payload.size() >= 5) {
+                        m_ancSwitch = sent.payload.left(5);
+                    }
+                    return;
+                default:
+                    return;
+                }
             }
             return;
         }
 
         if (feature == FeatureAnc) {
-            // ANC V1: written with command 1, read with command 4; values are
-            // only 0 (off) / 1 (on).
+            // ANC V1: written with command 2 (SET_ANC_STATE, per the app's
+            // V3ANCPlugin$COMMANDS), read with command 4; values are 0/1.
             if (command == 4) {
                 reply(feature, 4, QByteArray(1, char(m_ancMode == 0 ? 0 : 1)));
-            } else if (command == 1 && !sent.payload.isEmpty()) {
+            } else if (command == 2 && !sent.payload.isEmpty()) {
                 applyAncMode(quint8(sent.payload.at(0)) == 0 ? 0 : 1);
                 acknowledgeAncSet(feature, command);
             }
@@ -276,6 +368,14 @@ private:
 
         if (feature == FeatureAncV2) {
             // ANC V2 uses the same value for reading and writing
+            if (command == 41) {
+                reply(feature, 41, m_ancSwitch);
+                return;
+            }
+            if (command == 42 && sent.payload.size() >= 5) {
+                m_ancSwitch = sent.payload.left(5);
+                return;
+            }
             if (command == 3) {
                 reply(feature, 3, QByteArray(1, char(quint8(m_ancMode))));
             } else if (command == 4 && !sent.payload.isEmpty() && quint8(sent.payload.at(0)) <= 3) {
@@ -293,6 +393,189 @@ private:
         if (feature == FeatureDacGain && command == 1 && m_model == Edge) {
             reply(feature, 1, QByteArray(1, char(quint8(m_gain))));
             return;
+        }
+
+        if (feature == FeatureOneBringTwo) {
+            switch (command) {
+            case 1:
+                reply(feature, 1, QByteArray(1, '\x01'));
+                return;
+            case 3:
+                reply(feature, 3, QByteArray(1, char(quint8(m_mpTimeout))));
+                return;
+            case 4:
+                if (!sent.payload.isEmpty()) {
+                    m_mpTimeout = quint8(sent.payload.at(0));
+                }
+                return;
+            case 5:
+                if (m_mpFirst) {
+                    deliver(encodeFrame(feature, 5,
+                                        QByteArray::fromHex("01d41761b292d4") + QByteArray("Phone"),
+                                        TypeResponse));
+                } else if (m_mpSecond) {
+                    deliver(encodeFrame(feature, 5,
+                                        QByteArray::fromHex("02d41761b292d5") + QByteArray("Laptop"),
+                                        TypeResponse));
+                }
+                return;
+            case 6:
+                if (m_mpSecond && m_mpFirst) {
+                    deliver(encodeFrame(feature, 6,
+                                        QByteArray::fromHex("02d41761b292d5") + QByteArray("Laptop"),
+                                        TypeResponse));
+                }
+                return;
+            case 7:
+                if (!sent.payload.isEmpty()) {
+                    const int number = quint8(sent.payload.at(0));
+                    if (number == 1) {
+                        m_mpFirst = false;
+                    } else if (number == 2) {
+                        m_mpSecond = false;
+                    }
+                }
+                return;
+            default:
+                return;
+            }
+        }
+
+        if (feature == FeatureGesture && m_model == Rich) {
+            switch (command) {
+            case 0:
+                reply(feature, 0, QByteArray(1, '\x00'));
+                return;
+            case 1:
+                reply(feature, 1, QByteArray(1, char(0xFF))); // gestures 0..7
+                return;
+            case 2:
+                reply(feature, 2, QByteArray::fromHex("ff01")); // contexts 0..8
+                return;
+            case 3:
+                reply(feature, 3, QByteArray::fromHex("ffffff07")); // actions 0..26
+                return;
+            case 4: {
+                if (sent.payload.size() < 2) {
+                    return;
+                }
+                const int gesture = quint8(sent.payload.at(0)) & 0x7F;
+                int offset = quint8(sent.payload.at(1));
+                const QList<quint16> configs = ensureGestureConfigs(gesture);
+                const int remaining = configs.size() - qMin(offset, configs.size());
+                const int count = qMin(remaining, 18);
+                QByteArray response;
+                response.append(char((gesture & 0x7F) | (remaining > count ? 0x80 : 0)));
+                for (int i = 0; i < count; ++i) {
+                    const quint16 value = configs.at(offset + i);
+                    response.append(char((value >> 8) & 0xFF));
+                    response.append(char(value & 0xFF));
+                }
+                reply(feature, 4, response);
+                return;
+            }
+            case 5: {
+                if (sent.payload.size() < 2) {
+                    return;
+                }
+                const int gesture = quint8(sent.payload.at(0)) & 0x7F;
+                const bool more = (quint8(sent.payload.at(0)) & 0x80) != 0;
+                const int offset = quint8(sent.payload.at(1));
+                QList<quint16> configs = ensureGestureConfigs(gesture);
+                int written = 0;
+                for (int i = 2; i + 1 < sent.payload.size(); i += 2, ++written) {
+                    const quint16 value = quint16((quint16(quint8(sent.payload.at(i))) << 8)
+                                                  | quint16(quint8(sent.payload.at(i + 1))));
+                    const int index = offset + written;
+                    if (index < configs.size()) {
+                        configs[index] = value;
+                    } else {
+                        configs.append(value);
+                    }
+                }
+                if (!more) {
+                    while (configs.size() > offset + written) {
+                        configs.removeLast();
+                    }
+                }
+                m_gestureConfigs.insert(gesture, configs);
+                return;
+            }
+            case 6:
+                m_gestureConfigs.clear();
+                reply(feature, 6, QByteArray());
+                return;
+            default:
+                return;
+            }
+        }
+
+        if (m_model == Rich) {
+            switch (feature) {
+            case FeatureLed:
+                if (command == 1) {
+                    if (m_rejectLedReads) {
+                        // a GAIA error carries a status byte, not the value
+                        deliver(encodeFrame(feature, 1, QByteArray(1, '\x02'), TypeError));
+                    } else {
+                        reply(feature, 1, QByteArray(1, char(m_led ? 1 : 0)));
+                    }
+                } else if (command == 2 && !sent.payload.isEmpty()) {
+                    m_led = quint8(sent.payload.at(0)) != 0;
+                }
+                return;
+            case FeatureSpatialAudio:
+                if (command == 1) {
+                    reply(feature, 1, QByteArray(1, char(m_spatial ? 1 : 0)));
+                } else if (command == 2 && !sent.payload.isEmpty()) {
+                    m_spatial = quint8(sent.payload.at(0)) != 0;
+                } else if (command == 3) {
+                    reply(feature, 3, QByteArray(1, char(m_headTracking ? 1 : 0)));
+                } else if (command == 4 && !sent.payload.isEmpty()) {
+                    m_headTracking = quint8(sent.payload.at(0)) != 0;
+                }
+                return;
+            case FeatureLightSensor:
+                if (command == 1) {
+                    reply(feature, 1, QByteArray(1, char(m_sensor ? 1 : 0)));
+                } else if (command == 2 && !sent.payload.isEmpty()) {
+                    m_sensor = quint8(sent.payload.at(0)) != 0;
+                }
+                return;
+            case FeatureDyBass:
+                if (command == 1) {
+                    reply(feature, 1, QByteArray(1, char(m_dybass ? 1 : 0)));
+                } else if (command == 2 && !sent.payload.isEmpty()) {
+                    m_dybass = quint8(sent.payload.at(0)) != 0;
+                }
+                return;
+            case FeatureLrChannel:
+                if (command == 1) {
+                    reply(feature, 1, QByteArray(1, char(m_lrReversed ? 1 : 0)));
+                } else if (command == 2 && !sent.payload.isEmpty()) {
+                    m_lrReversed = quint8(sent.payload.at(0)) != 0;
+                }
+                return;
+            case FeaturePowerTimeout:
+                if (command == 1) {
+                    QByteArray payload;
+                    payload.append(char(m_powerOff > 0 ? 1 : 0));
+                    payload.append(char(quint8(m_powerOff)));
+                    reply(feature, 1, payload);
+                } else if (command == 2 && sent.payload.size() >= 2) {
+                    m_powerOff = quint8(sent.payload.at(0)) ? int(quint8(sent.payload.at(1))) : 0;
+                } else if (command == 3) {
+                    QByteArray payload;
+                    payload.append(char(m_standby > 0 ? 1 : 0));
+                    payload.append(char(quint8(m_standby)));
+                    reply(feature, 3, payload);
+                } else if (command == 4 && sent.payload.size() >= 2) {
+                    m_standby = quint8(sent.payload.at(0)) ? int(quint8(sent.payload.at(1))) : 0;
+                }
+                return;
+            default:
+                return;
+            }
         }
     }
 
@@ -329,6 +612,7 @@ private:
     }
 
     Model m_model;
+    bool m_rejectLedReads = false;
     bool m_busy = false;
     bool m_connected = false;
     // connected to a channel that is not the GAIA one: accepts and stays silent
@@ -342,6 +626,25 @@ private:
     int m_preset = 0x3F;
     int m_gain = 0;
     bool m_ldac = false;
+    // Rich model state
+    bool m_led = false;
+    bool m_spatial = false;
+    bool m_headTracking = false;
+    bool m_sensor = true;
+    bool m_dybass = true;
+    bool m_lrReversed = false;
+    int m_powerOff = 0;
+    int m_standby = 30;
+    int m_acGain = 128;
+    bool m_wind = false;
+    bool m_autoTransparency = false;
+    int m_autoRelease = 1;
+    QByteArray m_ancSwitch = QByteArray::fromHex("0101010101");
+    int m_mpTimeout = 30;
+    bool m_mpFirst = true;
+    bool m_mpSecond = true;
+    // button gestures: 8 gestures, 9 contexts, touchpad 0, action 0 by default
+    QHash<int, QList<quint16>> m_gestureConfigs;
     QByteArray m_eq = QByteArray::fromHex(
         "000400000017066600ffa600f051990000a2057864cc0000b408fc1ccc00ff521af413330000b4");
 };

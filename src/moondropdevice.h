@@ -45,7 +45,7 @@ enum AncMode {
     AncLive = 5,
 };
 
-// One 5 band parametric EQ band (MOONDROP "user set configuration").
+// One parametric EQ band (MOONDROP "user set configuration").
 struct EqBand
 {
     int frequency = 1000; // Hz
@@ -54,8 +54,10 @@ struct EqBand
     int type = 0; // 0 = peaking
 };
 
-// Decode / encode the 39 byte user EQ payload of EDGE style firmware.
-QList<EqBand> decodeUserEq(const QByteArray &payload);
+// Decode / encode the user EQ payload: a 4 byte band range header plus 7 bytes
+// per band (39 bytes for the five band EDGE firmware, 74 for a ten band model).
+// bandCount <= 0 derives the count from the payload length.
+QList<EqBand> decodeUserEq(const QByteArray &payload, int bandCount = 0);
 QByteArray encodeUserEq(const QList<EqBand> &bands);
 
 class MoondropDevice : public QObject
@@ -95,6 +97,12 @@ class MoondropDevice : public QObject
     Q_PROPERTY(bool gainDescending READ gainDescending NOTIFY profileChanged)
     // number of PEQ bands the device supports (0 = no parametric EQ)
     Q_PROPERTY(int peqBandCount READ peqBandCount NOTIFY eqChanged)
+    // gain / Q limits the official catalog lists for this model (defaults are
+    // what the measured EDGE accepts); the EQ editor clamps to these
+    Q_PROPERTY(double eqGainMin READ eqGainMin NOTIFY profileChanged)
+    Q_PROPERTY(double eqGainMax READ eqGainMax NOTIFY profileChanged)
+    Q_PROPERTY(double eqQMin READ eqQMin NOTIFY profileChanged)
+    Q_PROPERTY(double eqQMax READ eqQMax NOTIFY profileChanged)
     Q_PROPERTY(QString firmwareVersion READ firmwareVersion NOTIFY infoChanged)
     Q_PROPERTY(QString serialNumber READ serialNumber NOTIFY infoChanged)
     Q_PROPERTY(QString gaiaVersion READ gaiaVersion NOTIFY infoChanged)
@@ -130,6 +138,19 @@ class MoondropDevice : public QObject
     Q_PROPERTY(int dacGain READ dacGain NOTIFY codecChanged)
     Q_PROPERTY(bool multipointSupported READ multipointSupported NOTIFY capabilitiesChanged)
     Q_PROPERTY(bool multipointEnabled READ multipointEnabled NOTIFY codecChanged)
+    // one entry per supported extra setting:
+    // {id, label, kind ("bool"|"int"|"enum"), value, min, max, options?}
+    Q_PROPERTY(QVariantList extraSettings READ extraSettings NOTIFY extraChanged)
+    // 5 byte ANC switch configuration {state, ancOn, ancOff, transparency, order}
+    Q_PROPERTY(QVariantMap ancSwitchConfig READ ancSwitchConfig NOTIFY ancSwitchChanged)
+    // connected multipoint devices [{number, address, name}]
+    Q_PROPERTY(QVariantList multipointDevices READ multipointDevices NOTIFY multipointChanged)
+    Q_PROPERTY(int multipointTimeout READ multipointTimeout NOTIFY multipointChanged)
+    // button-gesture configuration (GAIA feature 11):
+    // [{id, label, entries:[{touchpad, touchpadLabel, context, contextLabel,
+    //    action, actionLabel}]}]
+    Q_PROPERTY(QVariantList gestures READ gestures NOTIFY gesturesChanged)
+    Q_PROPERTY(QVariantList gestureActionOptions READ gestureActionOptions NOTIFY gesturesChanged)
 
     Q_PROPERTY(QString lastError READ lastError NOTIFY lastErrorChanged)
     Q_PROPERTY(QVariantList pendingBands READ pendingBands NOTIFY eqChanged)
@@ -181,6 +202,10 @@ public:
     bool gainOrderKnown() const { return m_profile.gainOrder != GainOrder::Unknown; }
     bool gainDescending() const { return m_profile.gainOrder == GainOrder::Descending; }
     int peqBandCount() const { return m_peqBandCount; }
+    double eqGainMin() const { return m_profile.gainMin; }
+    double eqGainMax() const { return m_profile.gainMax; }
+    double eqQMin() const { return m_profile.qMin; }
+    double eqQMax() const { return m_profile.qMax; }
     QString firmwareVersion() const { return m_firmware; }
     QString serialNumber() const { return m_serial; }
     QString gaiaVersion() const { return m_gaiaVersion; }
@@ -217,6 +242,13 @@ public:
     bool multipointSupported() const { return m_multipointSupported; }
     bool multipointEnabled() const { return m_multipointEnabled; }
 
+    QVariantList extraSettings() const;
+    QVariantMap ancSwitchConfig() const;
+    QVariantList multipointDevices() const { return m_mpDevices; }
+    int multipointTimeout() const { return m_mpTimeout; }
+    QVariantList gestures() const { return m_gestures; }
+    QVariantList gestureActionOptions() const;
+
     QString lastError() const { return m_lastError; }
 
     // ---- QML API -----------------------------------------------------------
@@ -238,6 +270,14 @@ public:
     Q_INVOKABLE void setLhdcEnabled(bool enabled);
     Q_INVOKABLE void setDacGain(int gain);
     Q_INVOKABLE void setMultipointEnabled(bool enabled);
+    // Extra settings the official app exposes (LED, timeouts, wind noise, ...);
+    // setExtra() takes the id from extraSettings().
+    Q_INVOKABLE void setExtra(const QString &id, const QVariant &value);
+    Q_INVOKABLE void setAncSwitchConfig(bool state, bool ancOn, bool ancOff, bool transparency, int order);
+    Q_INVOKABLE void disconnectMultipointDevice(int deviceNumber);
+    Q_INVOKABLE void requestNextMultipointDevice();
+    Q_INVOKABLE void setGestureAction(int gestureId, int touchpad, int context, int action);
+    Q_INVOKABLE void resetGestureConfiguration();
     Q_INVOKABLE QString presetName(int presetId) const;
     // Escape hatch for reverse engineering: send an arbitrary GAIA command,
     // payload given as hex string, e.g. sendRaw(5, 5, "0004").
@@ -263,6 +303,10 @@ Q_SIGNALS:
     void eqChanged();
     void codecChanged();
     void presetNamesChanged();
+    void extraChanged();
+    void ancSwitchChanged();
+    void multipointChanged();
+    void gesturesChanged();
     void lastErrorChanged();
     void logMessage(const QString &message);
     void commandFinished(const QString &what, bool ok);
@@ -370,6 +414,17 @@ private:
     void parseCodec(quint16 feature, quint8 command, const QByteArray &payload);
     void parseDacGain(const QByteArray &payload);
     void parseMultipoint(const QByteArray &payload);
+    void parseMultipointDevice(const QByteArray &payload, bool first);
+    // Button gestures (feature 11).
+    void requestGestureInfo();
+    bool parseGestureFrame(quint8 command, const QByteArray &payload);
+    void sendGestureConfiguration(int gestureId);
+    // Extra settings (official app's feature-gated parameters).
+    void requestExtras();
+    bool extraSupported(const QString &id) const;
+    bool parseExtra(quint16 feature, quint8 command, const QByteArray &payload);
+    void writeExtra(const QString &id, const QVariant &value);
+    quint16 ancSwitchFeature() const;
     void parseSupportedFeatures(const QByteArray &payload);
     void updatePresetNames();
     // Drop everything learned from the headphone that was connected.  Called when
@@ -438,7 +493,18 @@ private:
     QVariantList m_bands;
     QVariantList m_eqWriteTarget;
     int m_eqWriteAttempts = 0;
+    // the last curve this widget successfully wrote: a read that returns it is
+    // our own echo (including notification driven re-reads).  It keeps an echo
+    // from overwriting the backup immediately, but manual writes still update
+    // the backup, so the restore point is the last manual curve, not
+    // necessarily the factory one
+    QVariantList m_lastWrittenEq;
     void writeEqPayload(const QVariantList &bands);
+    // band count to ask the device for: its own EQ/4 answer, else the value the
+    // official catalog lists, else the five bands the measured EDGE has
+    int userEqBandCount() const;
+    // payload of the user EQ read: first and last band, as the firmware sends it
+    QByteArray userEqRangePayload() const;
     // snapshot == false for a restore: the restore point must survive it
     void applyUserEqInternal(const QVariantList &bands, bool selectCustom, bool snapshot);
     static bool bandsMatch(const QVariantList &a, const QVariantList &b);
@@ -454,6 +520,19 @@ private:
     int m_dacGain = -1;
     bool m_multipointSupported = false;
     bool m_multipointEnabled = false;
+
+    // Extra settings from the official app's feature tables.
+    QHash<QString, QVariant> m_extras;
+    QSet<QString> m_extraAbsent; // probed and unanswered: stop asking this session
+    QHash<quint16, quint8> m_featureVersions;
+    QByteArray m_ancSwitch; // [state][ancOn][ancOff][tp][order]
+    QVariantList m_mpDevices; // [{number,address,name}]
+    int m_mpTimeout = -1;
+    QVariantList m_gestures; // [{id, entries:[{touchpad,context,action}]}]
+    QSet<int> m_gesturesSupported;
+    QSet<int> m_contextsSupported;
+    QSet<int> m_actionsSupported;
+    QHash<int, QVariantList> m_gesturePending;
 
     Stream m_stream;
     QQueue<Request> m_queue;

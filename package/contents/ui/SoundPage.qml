@@ -97,6 +97,56 @@ PlasmaComponents3.ScrollView {
         PlasmaComponents3.Label {
             Layout.fillWidth: true
             Layout.topMargin: Kirigami.Units.smallSpacing
+            visible: Moondrop.multipointSupported && Moondrop.multipointDevices.length > 0
+            text: i18n("Connected devices")
+            font.bold: true
+        }
+
+        Repeater {
+            model: Moondrop.multipointDevices
+
+            RowLayout {
+                required property var modelData
+                Layout.fillWidth: true
+                spacing: Kirigami.Units.smallSpacing
+
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    spacing: 0
+                    PlasmaComponents3.Label {
+                        Layout.fillWidth: true
+                        elide: Text.ElideRight
+                        text: modelData.name.length > 0 ? modelData.name : modelData.address
+                    }
+                    PlasmaComponents3.Label {
+                        Layout.fillWidth: true
+                        elide: Text.ElideRight
+                        opacity: 0.7
+                        font: Kirigami.Theme.smallFont
+                        text: modelData.address + "  (#" + modelData.number + ")"
+                    }
+                }
+                PlasmaComponents3.Button {
+                    icon.name: "network-disconnect"
+                    text: i18n("Disconnect")
+                    enabled: Moondrop.connected && !Moondrop.busy
+                    onClicked: Moondrop.disconnectMultipointDevice(modelData.number)
+                }
+            }
+        }
+
+        PlasmaComponents3.Button {
+            Layout.fillWidth: true
+            visible: Moondrop.multipointSupported && Moondrop.connected
+            icon.name: "view-refresh"
+            text: i18n("Show next connected device")
+            enabled: !Moondrop.busy
+            onClicked: Moondrop.requestNextMultipointDevice()
+        }
+
+        PlasmaComponents3.Label {
+            Layout.fillWidth: true
+            Layout.topMargin: Kirigami.Units.smallSpacing
             visible: Moondrop.dacGainSupported
             wrapMode: Text.WordWrap
             opacity: 0.7

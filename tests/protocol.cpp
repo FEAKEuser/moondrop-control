@@ -129,7 +129,32 @@ void testEqCodec()
     }
 
     check(decodeUserEq(QByteArray(10, '\0')).isEmpty(), QStringLiteral("short payload is rejected"));
-    check(encodeUserEq({}).isEmpty(), QStringLiteral("wrong band count is rejected"));
+    check(encodeUserEq({}).isEmpty(), QStringLiteral("empty band list is rejected"));
+
+    // The official app catalog lists ten band user EQs (Pudding, EVO 2, ...).
+    // The payload layout is the same, only the count changes: a 74 byte payload
+    // with a "00 09" header, and the decoder has to follow the length.
+    QList<EqBand> tenBands;
+    for (int i = 0; i < 10; ++i) {
+        EqBand band;
+        band.frequency = 100 * (i + 1);
+        band.q = 1.0 + i * 0.1;
+        band.gain = 0.5 * i;
+        tenBands.append(band);
+    }
+    const QByteArray tenPayload = encodeUserEq(tenBands);
+    check(tenPayload.size() == 74, QStringLiteral("ten bands encode to 74 bytes"));
+    check(tenPayload.startsWith(QByteArray("\x00\x09\x00\x00", 4)),
+          QStringLiteral("ten band header names bands 0..9"));
+    const QList<EqBand> tenRoundTrip = decodeUserEq(tenPayload);
+    check(tenRoundTrip.size() == 10, QStringLiteral("ten bands decode back"));
+    if (tenRoundTrip.size() == 10) {
+        check(tenRoundTrip[9].frequency == 1000, QStringLiteral("band 10 frequency survives"));
+        check(qAbs(tenRoundTrip[9].gain - 4.5) < 0.01, QStringLiteral("band 10 gain survives"));
+    }
+    // an explicit count that does not fit the payload is refused, not guessed
+    check(decodeUserEq(tenPayload, 5).size() == 5, QStringLiteral("explicit count selects a prefix"));
+    check(decodeUserEq(tenPayload, 11).isEmpty(), QStringLiteral("too large count is rejected"));
 }
 
 void testProfiles()
@@ -173,6 +198,48 @@ void testProfiles()
           QStringLiteral("profile: an unrelated EDGE device is not ours"));
     check(idOf(QString::fromUtf8("\u6c34\u6708\u96e8 \u5e03\u4e01")) == QLatin1String("pudding"),
           QStringLiteral("profile: Chinese Pudding name"));
+
+    // Catalog-derived models: EDGE 2 and the Space Travel 2 line share substrings
+    // with the older profiles and must not be swallowed by them.
+    check(idOf(QStringLiteral("MOONDROP EDGE 2")) == QLatin1String("edge-2"),
+          QStringLiteral("profile: EDGE 2 is not read as EDGE"));
+    check(idOf(QStringLiteral("SPACE TRAVEL 2")) == QLatin1String("space-travel-2"),
+          QStringLiteral("profile: Space Travel 2 is not read as Space Travel"));
+    check(idOf(QStringLiteral("MOONDROP SPACE TRAVEL 2 ULTRA")) == QLatin1String("space-travel-2-ultra"),
+          QStringLiteral("profile: Space Travel 2 Ultra keeps its own profile"));
+    check(idOf(QStringLiteral("MOONDROP EVO 2")) == QLatin1String("evo-2"),
+          QStringLiteral("profile: EVO 2"));
+    check(idOf(QStringLiteral("Moondrop MIRAGE")) == QLatin1String("mirage"),
+          QStringLiteral("profile: MIRAGE"));
+    check(idOf(QStringLiteral("MOONDROP Voyager")) == QLatin1String("voyager"),
+          QStringLiteral("profile: Voyager"));
+    check(idOf(QStringLiteral("Pill Yamada Ryo")) == QLatin1String("pill"),
+          QStringLiteral("profile: Pill collab SKU"));
+
+    // catalog ranges: jieli rows say Q 0.3..10, the Pill SKU says 0.2..10
+    const DeviceProfile mirageRange = matchProfile(QStringLiteral("MOONDROP MIRAGE"));
+    check(mirageRange.qMin == 0.3 && mirageRange.qMax == 10.0,
+          QStringLiteral("profile: MIRAGE carries the catalog Q range"));
+    const DeviceProfile pillRange = matchProfile(QStringLiteral("Pill Yamada Ryo"));
+    check(qAbs(pillRange.qMin - 0.2) < 1e-9 && pillRange.qMax == 10.0,
+          QStringLiteral("profile: Pill carries the catalog Q range"));
+
+    // "Voyager" is a common product line; only the whole reported name may match
+    check(idOf(QStringLiteral("VOYAGER")) == QLatin1String("voyager"),
+          QStringLiteral("profile: bare Voyager still matches"));
+    check(idOf(QStringLiteral("Poly Voyager Focus 2")) == QLatin1String("unknown"),
+          QStringLiteral("profile: Poly Voyager is not a MOONDROP Voyager"));
+
+    // the official catalog says which module and how many bands a model has
+    const DeviceProfile edge2 = matchProfile(QStringLiteral("MOONDROP EDGE 2"));
+    check(edge2.family == DeviceFamily::Bluetrum && edge2.eqBands == 5 && !edge2.isBuds,
+          QStringLiteral("profile: EDGE 2 is bluetrum, single value, five bands"));
+    const DeviceProfile mirage = matchProfile(QStringLiteral("Moondrop MIRAGE"));
+    check(mirage.family == DeviceFamily::JieLi && mirage.eqBands == 10 && mirage.isBuds,
+          QStringLiteral("profile: MIRAGE is jieli, TWS, ten bands"));
+    check(matchProfile(QStringLiteral("MOONDROP EDGE")).family == DeviceFamily::Bluetrum,
+          QStringLiteral("profile: EDGE belongs to the bluetrum module too"));
+    check(!edge2.selectable, QStringLiteral("profile: catalog rows stay out of the override list"));
 
     const DeviceProfile robin = matchProfile(QStringLiteral("MOONDROP Robin"));
     check(robin.battery == BatteryKind::Buds && robin.ancPath == 8,

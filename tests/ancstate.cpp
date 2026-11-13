@@ -337,8 +337,8 @@ int main(int argc, char **argv)
         check(waitFor([&] { return !device.busy(); }, 8000),
               QStringLiteral("V1: the restore and its verification finish"));
         check(device.ancMode() == AncNoiseCancelling, QStringLiteral("V1: the remembered mode is restored"));
-        check(sentFrame(log, QStringLiteral("1d 04 01")),
-              QStringLiteral("V1: the restore writes the V1 on value"));
+        check(sentFrame(log, QStringLiteral("1d 04 02")),
+              QStringLiteral("V1: the restore writes the V1 on value (SET_ANC_STATE = 2)"));
         device.disconnectDevice();
     }
 

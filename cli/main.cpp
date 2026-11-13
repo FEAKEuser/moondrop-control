@@ -96,10 +96,14 @@ int usage()
         << "  info                              everything the headphone reports\n"
         << "  anc [off|on|transparency|wind]    get or set noise cancelling\n"
         << "  preset list | preset ID           list / select an EQ preset (0x3f = PEQ)\n"
-        << "  peq get | peq flat | peq restore   show / flatten / restore the 5 band PEQ\n"
-        << "  peq set \"f:g:q;f:g:q;f:g:q;f:g:q;f:g:q\"\n"
+        << "  peq get | peq flat | peq restore   show / flatten / restore the user PEQ\n"
+        << "  peq set \"f:g:q;f:g:q;...\"          write bands (as many as the model has)\n"
         << "  battery                           battery levels\n"
         << "  ldac [on|off]\n"
+        << "  extra list | extra ID [VALUE]    extra settings (led, timeouts, ...)\n"
+        << "  anc-switch [STATE ON OFF TP ORDER]  ANC switch configuration\n"
+        << "  mp devices | mp next | mp timeout [N] | mp disconnect N\n"
+        << "  gesture list | gesture reset | gesture set GID TOUCHPAD CONTEXT ACTION\n"
         << "  gain [0|1|2]                      DAC gain\n"
         << "  raw FEATURE CMD [HEXPAYLOAD]      arbitrary GAIA command\n"
         << "  monitor [seconds]                 just print notifications\n";
@@ -173,6 +177,8 @@ int main(int argc, char **argv)
             model = Moondrop::FakeHeadset::Pudding;
         } else if (fake.compare(QLatin1String("robin"), Qt::CaseInsensitive) == 0) {
             model = Moondrop::FakeHeadset::Robin;
+        } else if (fake.compare(QLatin1String("rich"), Qt::CaseInsensitive) == 0) {
+            model = Moondrop::FakeHeadset::Rich;
         }
         devicePtr = new MoondropDevice(nullptr, new Moondrop::FakeHeadset(model));
     } else {
@@ -274,21 +280,39 @@ int main(int argc, char **argv)
             } else if (sub == QLatin1String("restore")) {
                 device.restoreDeviceEq();
             } else if (sub == QLatin1String("flat")) {
+                // keep the frequencies the device reports: a ten band model has
+                // ten of them.  Without a curve yet, use the measured EDGE layout.
                 QVariantList bands;
-                const QList<int> freqs{23, 240, 1400, 2300, 6900};
-                for (int freq : freqs) {
-                    QVariantMap band;
-                    band.insert(QStringLiteral("frequency"), freq);
-                    band.insert(QStringLiteral("gain"), 0.0);
-                    band.insert(QStringLiteral("q"), 1.0);
-                    band.insert(QStringLiteral("type"), 0);
-                    bands.append(band);
+                const QVariantList current = device.bands();
+                if (!current.isEmpty()) {
+                    for (const QVariant &item : current) {
+                        QVariantMap band = item.toMap();
+                        band.insert(QStringLiteral("gain"), 0.0);
+                        band.insert(QStringLiteral("q"), 1.0);
+                        bands.append(band);
+                    }
+                } else {
+                    const QList<int> freqs{23, 240, 1400, 2300, 6900};
+                    for (int freq : freqs) {
+                        QVariantMap band;
+                        band.insert(QStringLiteral("frequency"), freq);
+                        band.insert(QStringLiteral("gain"), 0.0);
+                        band.insert(QStringLiteral("q"), 1.0);
+                        band.insert(QStringLiteral("type"), 0);
+                        bands.append(band);
+                    }
                 }
                 device.applyUserEq(bands, true);
             } else if (sub == QLatin1String("set") && args.size() >= 2) {
                 const QStringList parts = args.at(1).split(QLatin1Char(';'), Qt::SkipEmptyParts);
-                if (parts.size() != 5) {
-                    out << "need exactly 5 bands\n";
+                if (parts.isEmpty() || parts.size() > 32) {
+                    out << "need between 1 and 32 bands\n";
+                    out.flush();
+                    app.exit(2);
+                    return;
+                }
+                if (!device.bands().isEmpty() && device.bands().size() != parts.size()) {
+                    out << QStringLiteral("this headphone has %1 bands\n").arg(device.bands().size());
                     out.flush();
                     app.exit(2);
                     return;
@@ -340,6 +364,134 @@ int main(int argc, char **argv)
                 return;
             }
             device.setDacGain(args.first().toInt());
+        } else if (command == QLatin1String("extra")) {
+            if (args.isEmpty() || args.first() == QLatin1String("list")) {
+                for (const QVariant &item : device.extraSettings()) {
+                    const QVariantMap entry = item.toMap();
+                    out << QStringLiteral("%1 = %2   (%3)\n")
+                               .arg(entry.value(QStringLiteral("id")).toString(), -22)
+                               .arg(entry.value(QStringLiteral("value")).toString(), -6)
+                               .arg(entry.value(QStringLiteral("label")).toString());
+                }
+                out.flush();
+            } else if (args.size() == 1) {
+                const QString id = args.first();
+                bool found = false;
+                for (const QVariant &item : device.extraSettings()) {
+                    const QVariantMap entry = item.toMap();
+                    if (entry.value(QStringLiteral("id")).toString() != id) {
+                        continue;
+                    }
+                    out << QStringLiteral("%1 = %2   (%3)\n")
+                               .arg(id, -22)
+                               .arg(entry.value(QStringLiteral("value")).toString(), -6)
+                               .arg(entry.value(QStringLiteral("label")).toString());
+                    found = true;
+                    break;
+                }
+                if (!found) {
+                    out << "unknown extra setting: " << id << "\n";
+                    out.flush();
+                    app.exit(2);
+                    return;
+                }
+                out.flush();
+            } else if (args.size() >= 2) {
+                const QString id = args.at(0);
+                QVariant value = args.at(1);
+                for (const QVariant &item : device.extraSettings()) {
+                    const QVariantMap entry = item.toMap();
+                    if (entry.value(QStringLiteral("id")).toString() != id) {
+                        continue;
+                    }
+                    if (entry.value(QStringLiteral("kind")).toString() == QLatin1String("bool")) {
+                        const QString text = value.toString().toLower();
+                        value = (text == QLatin1String("1") || text == QLatin1String("on")
+                                 || text == QLatin1String("true") || text == QLatin1String("yes"));
+                    } else {
+                        value = value.toInt();
+                    }
+                    break;
+                }
+                device.setExtra(id, value);
+            } else {
+                usage();
+                app.exit(2);
+            }
+        } else if (command == QLatin1String("anc-switch")) {
+            if (args.size() >= 5) {
+                device.setAncSwitchConfig(args.at(0) != QLatin1String("0"),
+                                          args.at(1) != QLatin1String("0"),
+                                          args.at(2) != QLatin1String("0"),
+                                          args.at(3) != QLatin1String("0"),
+                                          args.at(4).toInt());
+            } else {
+                const QVariantMap config = device.ancSwitchConfig();
+                out << "state        : " << (config.value(QStringLiteral("state")).toBool() ? "on" : "off") << "\n";
+                out << "noise cancel : " << (config.value(QStringLiteral("ancOn")).toBool() ? "yes" : "no") << "\n";
+                out << "off          : " << (config.value(QStringLiteral("ancOff")).toBool() ? "yes" : "no") << "\n";
+                out << "transparency : " << (config.value(QStringLiteral("transparency")).toBool() ? "yes" : "no") << "\n";
+                out << "order        : " << config.value(QStringLiteral("order")).toInt() << "\n";
+                out.flush();
+            }
+        } else if (command == QLatin1String("mp")) {
+            const QString sub = args.isEmpty() ? QStringLiteral("devices") : args.first();
+            if (sub == QLatin1String("devices")) {
+                for (const QVariant &item : device.multipointDevices()) {
+                    const QVariantMap entry = item.toMap();
+                    out << QStringLiteral("#%1  %2  %3\n")
+                               .arg(entry.value(QStringLiteral("number")).toInt())
+                               .arg(entry.value(QStringLiteral("address")).toString(), -20)
+                               .arg(entry.value(QStringLiteral("name")).toString());
+                }
+                if (device.multipointTimeout() >= 0) {
+                    out << "timeout: " << device.multipointTimeout() << " min\n";
+                }
+                out.flush();
+            } else if (sub == QLatin1String("next")) {
+                device.requestNextMultipointDevice();
+            } else if (sub == QLatin1String("timeout") && args.size() == 1) {
+                if (device.multipointTimeout() >= 0) {
+                    out << "timeout: " << device.multipointTimeout() << " min\n";
+                } else {
+                    out << "multipoint timeout: unknown\n";
+                }
+                out.flush();
+            } else if (sub == QLatin1String("timeout") && args.size() >= 2) {
+                device.setExtra(QStringLiteral("multipointTimeout"), args.at(1).toInt());
+            } else if (sub == QLatin1String("disconnect") && args.size() >= 2) {
+                device.disconnectMultipointDevice(args.at(1).toInt());
+            } else {
+                usage();
+                app.exit(2);
+            }
+        } else if (command == QLatin1String("gesture")) {
+            const QString sub = args.isEmpty() ? QStringLiteral("list") : args.first();
+            if (sub == QLatin1String("list")) {
+                for (const QVariant &row : device.gestures()) {
+                    const QVariantMap gesture = row.toMap();
+                    out << gesture.value(QStringLiteral("label")).toString() << "\n";
+                    for (const QVariant &item : gesture.value(QStringLiteral("entries")).toList()) {
+                        const QVariantMap entry = item.toMap();
+                        out << QStringLiteral("   %1 · %2 -> %3  (%4/%5/%6)\n")
+                                   .arg(entry.value(QStringLiteral("touchpadLabel")).toString(), -14)
+                                   .arg(entry.value(QStringLiteral("contextLabel")).toString(), -14)
+                                   .arg(entry.value(QStringLiteral("actionLabel")).toString())
+                                   .arg(entry.value(QStringLiteral("touchpad")).toInt())
+                                   .arg(entry.value(QStringLiteral("context")).toInt())
+                                   .arg(entry.value(QStringLiteral("action")).toInt());
+                    }
+                }
+                out.flush();
+            } else if (sub == QLatin1String("reset")) {
+                device.resetGestureConfiguration();
+            } else if (sub == QLatin1String("set") && args.size() >= 5) {
+                device.setGestureAction(args.at(1).toInt(), args.at(2).toInt(),
+                                        args.at(3).toInt(), args.at(4).toInt());
+            } else {
+                usage();
+                app.exit(2);
+            }
         } else if (command == QLatin1String("raw")) {
             if (args.size() < 2) {
                 usage();
