@@ -1,3 +1,9 @@
+moondrop-control (0.3.2-1) unstable; urgency=medium
+
+  * Build the Fedora, Debian and Arch packages automatically on release tags.
+
+ -- FEAKEuser <feohz@users.noreply.github.com>  Sat, 14 Nov 2026 17:02:00 +0800
+
 moondrop-control (0.3.1-1) unstable; urgency=medium
 
   * Noise-cancelling tab icon now follows the current mode.

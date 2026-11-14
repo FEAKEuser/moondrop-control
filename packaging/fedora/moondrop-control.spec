@@ -17,7 +17,7 @@
 %global debug_package %{nil}
 
 Name:           moondrop-control
-Version:        0.3.1
+Version:        0.3.2
 Release:        1%{?dist}
 Summary:        KDE Plasma applet to control MOONDROP Bluetooth headphones
 
@@ -82,6 +82,9 @@ cp -a package %{buildroot}%{_datadir}/plasma/plasmoids/org.moondrop.control
 %{_qt6_qmldir}/org/moondrop/backend/
 
 %changelog
+* Sat Nov 14 2026 FEAKEuser <feohz@users.noreply.github.com> - 0.3.2-1
+- Build the Fedora, Debian and Arch packages automatically on release tags
+
 * Sat Nov 14 2026 FEAKEuser <feohz@users.noreply.github.com> - 0.3.1-1
 - Noise-cancelling tab icon follows the current mode; ANC uses the noise-reduction icon
 
